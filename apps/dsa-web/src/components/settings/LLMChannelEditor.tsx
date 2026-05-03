@@ -4,90 +4,12 @@ import type { ParsedApiError } from '../../api/error';
 import { getParsedApiError } from '../../api/error';
 import { systemConfigApi } from '../../api/systemConfig';
 import { ApiErrorAlert, Badge, Button, InlineAlert, Input, Select, StatusDot, Tooltip } from '../common';
-
-type ChannelProtocol = 'openai' | 'deepseek' | 'gemini' | 'anthropic' | 'vertex_ai' | 'ollama';
-
-interface ChannelPreset {
-  label: string;
-  protocol: ChannelProtocol;
-  baseUrl: string;
-  placeholder: string;
-}
-
-const CHANNEL_PRESETS: Record<string, ChannelPreset> = {
-  aihubmix: {
-    label: 'AIHubmix（聚合平台）',
-    protocol: 'openai',
-    baseUrl: 'https://aihubmix.com/v1',
-    placeholder: 'gpt-4o-mini,claude-3-5-sonnet,qwen-plus',
-  },
-  deepseek: {
-    label: 'DeepSeek 官方',
-    protocol: 'deepseek',
-    baseUrl: 'https://api.deepseek.com',
-    placeholder: 'deepseek-v4-flash,deepseek-v4-pro',
-  },
-  dashscope: {
-    label: '通义千问（Dashscope）',
-    protocol: 'openai',
-    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    placeholder: 'qwen-plus,qwen-turbo',
-  },
-  zhipu: {
-    label: '智谱 GLM',
-    protocol: 'openai',
-    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-    placeholder: 'glm-4-flash,glm-4-plus',
-  },
-  moonshot: {
-    label: 'Moonshot（月之暗面）',
-    protocol: 'openai',
-    baseUrl: 'https://api.moonshot.cn/v1',
-    placeholder: 'moonshot-v1-8k',
-  },
-  siliconflow: {
-    label: '硅基流动（SiliconFlow）',
-    protocol: 'openai',
-    baseUrl: 'https://api.siliconflow.cn/v1',
-    placeholder: 'Qwen/Qwen3-8B,deepseek-ai/DeepSeek-V3',
-  },
-  openrouter: {
-    label: 'OpenRouter',
-    protocol: 'openai',
-    baseUrl: 'https://openrouter.ai/api/v1',
-    placeholder: 'openai/gpt-4o,anthropic/claude-3-5-sonnet',
-  },
-  gemini: {
-    label: 'Gemini 官方',
-    protocol: 'gemini',
-    baseUrl: '',
-    placeholder: 'gemini-2.5-flash,gemini-2.5-pro',
-  },
-  anthropic: {
-    label: 'Anthropic 官方',
-    protocol: 'anthropic',
-    baseUrl: '',
-    placeholder: 'claude-3-5-sonnet-20241022',
-  },
-  openai: {
-    label: 'OpenAI 官方',
-    protocol: 'openai',
-    baseUrl: 'https://api.openai.com/v1',
-    placeholder: 'gpt-4o,gpt-4o-mini',
-  },
-  ollama: {
-    label: 'Ollama（本地）',
-    protocol: 'ollama',
-    baseUrl: 'http://127.0.0.1:11434',
-    placeholder: 'llama3.2,qwen2.5',
-  },
-  custom: {
-    label: '自定义渠道',
-    protocol: 'openai',
-    baseUrl: '',
-    placeholder: 'model-name-1,model-name-2',
-  },
-};
+import type { ChannelProtocol } from './llmProviderTemplates';
+import {
+  LLM_PROVIDER_TEMPLATE_BY_ID,
+  LLM_PROVIDER_TEMPLATES,
+  MODEL_PLACEHOLDERS_BY_PROTOCOL,
+} from './llmProviderTemplates';
 
 const PROTOCOL_OPTIONS: Array<{ value: ChannelProtocol; label: string }> = [
   { value: 'openai', label: 'OpenAI Compatible' },
@@ -97,15 +19,6 @@ const PROTOCOL_OPTIONS: Array<{ value: ChannelProtocol; label: string }> = [
   { value: 'vertex_ai', label: 'Vertex AI' },
   { value: 'ollama', label: 'Ollama' },
 ];
-
-const MODEL_PLACEHOLDERS: Record<ChannelProtocol, string> = {
-  openai: 'gpt-4o-mini,qwen-plus',
-  deepseek: 'deepseek-v4-flash,deepseek-v4-pro',
-  gemini: 'gemini-2.5-flash,gemini-2.5-pro',
-  anthropic: 'claude-3-5-sonnet-20241022',
-  vertex_ai: 'gemini-2.5-flash',
-  ollama: 'llama3.2,qwen2.5',
-};
 
 const KNOWN_MODEL_PREFIXES = new Set([
   'openai',
@@ -146,11 +59,13 @@ interface ChannelConfig {
 interface ChannelTestState {
   status: 'idle' | 'loading' | 'success' | 'error';
   text?: string;
+  hint?: string;
 }
 
 interface ChannelDiscoveryState {
   status: 'idle' | 'loading' | 'success' | 'error';
   text?: string;
+  hint?: string;
   models: string[];
 }
 
@@ -201,7 +116,7 @@ const ChannelRow: React.FC<ChannelRowProps> = ({
   onTest,
   onDiscoverModels,
 }) => {
-  const preset = CHANNEL_PRESETS[channel.name];
+  const preset = LLM_PROVIDER_TEMPLATE_BY_ID[channel.name];
   const displayName = preset?.label || channel.name;
   const selectedModels = splitModels(channel.models);
   const discoveredModels = discoveryState?.models || [];
@@ -374,6 +289,11 @@ const ChannelRow: React.FC<ChannelRowProps> = ({
                 {discoveryState?.text || '支持 `/models` 的 OpenAI Compatible 渠道可自动拉取模型。'}
               </span>
             </div>
+            {discoveryState?.hint ? (
+              <p className="text-[11px] text-secondary-text">
+                {discoveryState.hint}
+              </p>
+            ) : null}
 
             {discoveredModels.length > 0 ? (
               <div>
@@ -402,7 +322,7 @@ const ChannelRow: React.FC<ChannelRowProps> = ({
               value={channel.models}
               disabled={busy}
               onChange={(e) => onUpdate(index, 'models', e.target.value)}
-              placeholder={preset?.placeholder || MODEL_PLACEHOLDERS[channel.protocol]}
+              placeholder={preset?.placeholderModels || MODEL_PLACEHOLDERS_BY_PROTOCOL[channel.protocol]}
               hint={
                 discoveredModels.length > 0
                   ? '如有自定义模型名未出现在列表中，可继续手动补充，保存格式仍为逗号分隔。'
@@ -429,16 +349,23 @@ const ChannelRow: React.FC<ChannelRowProps> = ({
               {testState?.status === 'loading' ? '测试中...' : '测试连接'}
             </Button>
             {testState?.text ? (
-              <span className={`text-xs ${
-                testState.status === 'success'
-                  ? 'text-success'
-                  : testState.status === 'error'
-                    ? 'text-danger'
-                    : 'text-muted-text'
-              }`}
-              >
-                {testState.text}
-              </span>
+              <div className="space-y-1">
+                <span className={`block text-xs ${
+                  testState.status === 'success'
+                    ? 'text-success'
+                    : testState.status === 'error'
+                      ? 'text-danger'
+                      : 'text-muted-text'
+                }`}
+                >
+                  {testState.text}
+                </span>
+                {testState.hint ? (
+                  <p className="text-[11px] text-secondary-text">
+                    {testState.hint}
+                  </p>
+                ) : null}
+              </div>
             ) : null}
           </div>
         </div>
@@ -609,33 +536,122 @@ function buildModelOptions(models: string[], selectedModel: string, autoLabel: s
   return options;
 }
 
+const LLM_STAGE_LABELS: Record<string, string> = {
+  model_discovery: '模型发现',
+  chat_completion: '聊天调用',
+  response_parse: '响应解析',
+};
+
+const LLM_ERROR_LABELS: Record<string, string> = {
+  auth: '鉴权失败',
+  timeout: '请求超时',
+  quota: '额度或限流',
+  model_not_found: '模型不存在',
+  empty_response: '空响应',
+  format_error: '格式异常',
+  network_error: '网络异常',
+  invalid_config: '配置无效',
+  unsupported_protocol: '协议暂不支持',
+};
+
+const LLM_TROUBLESHOOTING_HINTS: Record<string, string> = {
+  auth: '请检查 API Key 是否正确、是否有多余空格，以及当前渠道是否需要额外组织/项目权限。',
+  timeout: '可重试；若持续超时，请检查 Base URL、网络代理、服务商可用区或本地防火墙。',
+  quota: '请检查余额、套餐额度、RPM/TPM 限流或并发设置，必要时稍后重试。',
+  model_not_found: '请确认模型名与渠道协议匹配，并先用“获取模型”核对该渠道实际可用模型列表。',
+  empty_response: '渠道已连通但未返回正文；可尝试切换兼容模型、关闭额外响应模式后再测试。',
+  network_error: '请检查 Base URL、代理、TLS/证书、中转网关或本地网络策略，并可稍后重试。',
+  invalid_config: '先补齐协议、Base URL、API Key 和模型配置，再执行一键测试。',
+  unsupported_protocol: '当前仅对 OpenAI Compatible / DeepSeek 渠道提供自动模型发现，请改为手动维护模型列表。',
+};
+
+function getLlmStageLabel(stage?: string | null): string {
+  return LLM_STAGE_LABELS[stage || ''] || '连接测试';
+}
+
+function getLlmErrorCodeLabel(code?: string | null): string {
+  return LLM_ERROR_LABELS[code || ''] || '测试失败';
+}
+
+function getLlmTroubleshootingHint(
+  code?: string | null,
+  stage?: string | null,
+  context: 'test' | 'discovery' = 'test',
+): string | undefined {
+  if (code === 'format_error') {
+    return context === 'discovery' || stage === 'model_discovery'
+      ? '该渠道返回的 /models 响应格式不兼容，请改为手动填写模型列表。'
+      : '返回结构与预期不一致，请确认该渠道兼容 Chat Completions 接口。';
+  }
+  if (code === 'empty_response' && (context === 'discovery' || stage === 'model_discovery')) {
+    return '该渠道的 /models 接口未返回可用模型 ID；请检查 Base URL 是否指向兼容的模型列表接口，或改为手动填写模型列表。';
+  }
+  return LLM_TROUBLESHOOTING_HINTS[code || ''];
+}
+
+function buildLlmFailureText(result: {
+  message: string;
+  error?: string | null;
+  stage?: string | null;
+  errorCode?: string | null;
+}): string {
+  const prefix = `${getLlmStageLabel(result.stage)} · ${getLlmErrorCodeLabel(result.errorCode)}`;
+  const summary = result.message || '测试失败';
+  if (result.error && result.error !== result.message) {
+    return `${prefix}：${summary}（原始摘要：${result.error}）`;
+  }
+  return `${prefix}：${summary}`;
+}
+
 const MANAGED_PROVIDERS = new Set(['gemini', 'vertex_ai', 'anthropic', 'openai', 'deepseek']);
+const LEGACY_PROVIDER_KEYS: Record<string, string[]> = {
+  gemini: ['GEMINI_API_KEYS', 'GEMINI_API_KEY'],
+  vertex_ai: ['GEMINI_API_KEYS', 'GEMINI_API_KEY'],
+  anthropic: ['ANTHROPIC_API_KEYS', 'ANTHROPIC_API_KEY'],
+  openai: ['OPENAI_API_KEYS', 'AIHUBMIX_KEY', 'OPENAI_API_KEY'],
+  deepseek: ['DEEPSEEK_API_KEYS', 'DEEPSEEK_API_KEY'],
+};
+
+function getRuntimeProvider(model: string): string {
+  if (!model) return '';
+  if (!model.includes('/')) return 'openai';
+  return model.split('/', 1)[0].trim().toLowerCase();
+}
 
 function usesDirectEnvProvider(model: string): boolean {
-  if (!model || !model.includes('/')) return false;
-  const provider = model.split('/', 1)[0].trim().toLowerCase();
+  const provider = getRuntimeProvider(model);
   return Boolean(provider) && !MANAGED_PROVIDERS.has(provider);
 }
 
-function isRuntimeModelAvailable(model: string, availableModels: string[]): boolean {
-  return availableModels.includes(model) || usesDirectEnvProvider(model);
+function hasLegacyRuntimeSource(model: string, itemMap: Map<string, string>): boolean {
+  const provider = PROTOCOL_ALIASES[getRuntimeProvider(model)] || getRuntimeProvider(model);
+  if (!provider || !MANAGED_PROVIDERS.has(provider)) {
+    return false;
+  }
+  return (LEGACY_PROVIDER_KEYS[provider] || []).some((key) => (itemMap.get(key) || '').trim().length > 0);
 }
 
-function sanitizeRuntimeConfigForSave(runtimeConfig: RuntimeConfig, availableModels: string[]): RuntimeConfig {
-  if (availableModels.length === 0) {
-    return runtimeConfig;
-  }
+function isRuntimeModelAvailable(model: string, availableModels: string[], itemMap: Map<string, string>): boolean {
+  return availableModels.includes(model)
+    || usesDirectEnvProvider(model)
+    || (availableModels.length === 0 && hasLegacyRuntimeSource(model, itemMap));
+}
 
-  const primaryModel = runtimeConfig.primaryModel && !isRuntimeModelAvailable(runtimeConfig.primaryModel, availableModels)
+function sanitizeRuntimeConfigForSave(
+  runtimeConfig: RuntimeConfig,
+  availableModels: string[],
+  itemMap: Map<string, string>,
+): RuntimeConfig {
+  const primaryModel = runtimeConfig.primaryModel && !isRuntimeModelAvailable(runtimeConfig.primaryModel, availableModels, itemMap)
     ? ''
     : runtimeConfig.primaryModel;
-  const agentPrimaryModel = runtimeConfig.agentPrimaryModel && !isRuntimeModelAvailable(runtimeConfig.agentPrimaryModel, availableModels)
+  const agentPrimaryModel = runtimeConfig.agentPrimaryModel && !isRuntimeModelAvailable(runtimeConfig.agentPrimaryModel, availableModels, itemMap)
     ? ''
     : runtimeConfig.agentPrimaryModel;
-  const visionModel = runtimeConfig.visionModel && !isRuntimeModelAvailable(runtimeConfig.visionModel, availableModels)
+  const visionModel = runtimeConfig.visionModel && !isRuntimeModelAvailable(runtimeConfig.visionModel, availableModels, itemMap)
     ? ''
     : runtimeConfig.visionModel;
-  const fallbackModels = runtimeConfig.fallbackModels.filter((model) => isRuntimeModelAvailable(model, availableModels));
+  const fallbackModels = runtimeConfig.fallbackModels.filter((model) => isRuntimeModelAvailable(model, availableModels, itemMap));
 
   return {
     ...runtimeConfig,
@@ -797,6 +813,7 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
   const initialChannels = useMemo(() => parseChannelsFromItems(items), [items]);
   const initialNames = useMemo(() => initialChannels.map((channel) => channel.name), [initialChannels]);
   const initialRuntimeConfig = useMemo(() => parseRuntimeConfigFromItems(items), [items]);
+  const savedItemMap = useMemo(() => new Map(items.map((item) => [item.key.toUpperCase(), item.value])), [items]);
   const hasLitellmConfig = useMemo(
     () => items.some((item) => item.key === 'LITELLM_CONFIG' && item.value.trim().length > 0),
     [items],
@@ -815,6 +832,7 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
     | { type: 'local-error'; text: string }
     | null
   >(null);
+  const [saveWarnings, setSaveWarnings] = useState<string[]>([]);
   const [visibleKeys, setVisibleKeys] = useState<Record<number, boolean>>({});
   const [testStates, setTestStates] = useState<Record<number, ChannelTestState>>({});
   const [discoveryStates, setDiscoveryStates] = useState<Record<string, ChannelDiscoveryState>>({});
@@ -825,6 +843,7 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
 
   const prevChannelsRef = useRef(channelsFingerprint);
   const prevRuntimeRef = useRef(runtimeFingerprint);
+  const pendingSaveFeedbackFingerprintRef = useRef<{ channels: string; runtime: string } | null>(null);
   const discoveryNonceRef = useRef<Record<string, number>>({});
   const discoveryRequestIdRef = useRef(0);
 
@@ -834,6 +853,10 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
     }
     prevChannelsRef.current = channelsFingerprint;
     prevRuntimeRef.current = runtimeFingerprint;
+    const pendingSaveFeedbackFingerprint = pendingSaveFeedbackFingerprintRef.current;
+    const preserveSaveFeedback = pendingSaveFeedbackFingerprint?.channels === channelsFingerprint
+      && pendingSaveFeedbackFingerprint.runtime === runtimeFingerprint;
+    pendingSaveFeedbackFingerprintRef.current = null;
     setChannels(initialChannels);
     setRuntimeConfig(initialRuntimeConfig);
     setVisibleKeys({});
@@ -841,7 +864,10 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
     setDiscoveryStates({});
     setExpandedRows({});
     discoveryNonceRef.current = {};
-    setSaveMessage(null);
+    if (!preserveSaveFeedback) {
+      setSaveMessage(null);
+      setSaveWarnings([]);
+    }
     setIsCollapsed(false);
   }, [channelsFingerprint, runtimeFingerprint, initialChannels, initialRuntimeConfig]);
 
@@ -889,15 +915,15 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
       const updated = { ...channel, [field]: value };
 
       if (field === 'name' && typeof value === 'string') {
-        const newPreset = CHANNEL_PRESETS[value];
+        const newPreset = LLM_PROVIDER_TEMPLATE_BY_ID[value];
         if (newPreset) {
-          const oldPreset = CHANNEL_PRESETS[channel.name];
+          const oldPreset = LLM_PROVIDER_TEMPLATE_BY_ID[channel.name];
           if (!updated.baseUrl || updated.baseUrl === (oldPreset?.baseUrl ?? '')) {
             updated.baseUrl = newPreset.baseUrl;
           }
           updated.protocol = newPreset.protocol;
-          if (!updated.models || updated.models === (oldPreset?.placeholder ?? '')) {
-            updated.models = newPreset.placeholder;
+          if (!updated.models || updated.models === (oldPreset?.placeholderModels ?? '')) {
+            updated.models = newPreset.placeholderModels;
           }
         }
       }
@@ -948,7 +974,7 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
   };
 
   const addChannel = () => {
-    const preset = CHANNEL_PRESETS[addPreset] || CHANNEL_PRESETS.custom;
+    const preset = LLM_PROVIDER_TEMPLATE_BY_ID[addPreset] || LLM_PROVIDER_TEMPLATE_BY_ID.custom;
     setChannels((previous) => {
       const existingNames = new Set(previous.map((channel) => channel.name));
       const baseName = addPreset === 'custom' ? 'custom' : addPreset;
@@ -967,7 +993,7 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
           protocol: preset.protocol,
           baseUrl: preset.baseUrl,
           apiKey: '',
-          models: preset.placeholder || '',
+          models: preset.placeholderModels || '',
           enabled: true,
         },
       ];
@@ -987,31 +1013,29 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
     }
 
     const runtimeConfigForSave = managesRuntimeConfig
-      ? sanitizeRuntimeConfigForSave(runtimeConfig, availableModels)
+      ? sanitizeRuntimeConfigForSave(runtimeConfig, availableModels, savedItemMap)
       : runtimeConfig;
     if (!runtimeConfigsAreEqual(runtimeConfigForSave, runtimeConfig)) {
       setRuntimeConfig(runtimeConfigForSave);
     }
 
-    if (managesRuntimeConfig && availableModels.length > 0) {
+    if (managesRuntimeConfig) {
       const invalidPrimaryModel = runtimeConfigForSave.primaryModel
-        && !availableModels.includes(runtimeConfigForSave.primaryModel)
-        && !usesDirectEnvProvider(runtimeConfigForSave.primaryModel);
+        && !isRuntimeModelAvailable(runtimeConfigForSave.primaryModel, availableModels, savedItemMap);
       if (invalidPrimaryModel) {
         setSaveMessage({ type: 'local-error', text: '当前主模型不在已启用渠道的模型列表中，请重新选择。' });
         return;
       }
 
       const invalidAgentPrimaryModel = runtimeConfigForSave.agentPrimaryModel
-        && !availableModels.includes(runtimeConfigForSave.agentPrimaryModel)
-        && !usesDirectEnvProvider(runtimeConfigForSave.agentPrimaryModel);
+        && !isRuntimeModelAvailable(runtimeConfigForSave.agentPrimaryModel, availableModels, savedItemMap);
       if (invalidAgentPrimaryModel) {
         setSaveMessage({ type: 'local-error', text: '当前 Agent 主模型不在已启用渠道的模型列表中，请重新选择。' });
         return;
       }
 
       const invalidFallbackModel = runtimeConfigForSave.fallbackModels.some(
-        (model) => !availableModels.includes(model) && !usesDirectEnvProvider(model),
+        (model) => !isRuntimeModelAvailable(model, availableModels, savedItemMap),
       );
       if (invalidFallbackModel) {
         setSaveMessage({ type: 'local-error', text: '存在无效的备选模型，请重新选择。' });
@@ -1019,8 +1043,7 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
       }
 
       const invalidVisionModel = runtimeConfigForSave.visionModel
-        && !availableModels.includes(runtimeConfigForSave.visionModel)
-        && !usesDirectEnvProvider(runtimeConfigForSave.visionModel);
+        && !isRuntimeModelAvailable(runtimeConfigForSave.visionModel, availableModels, savedItemMap);
       if (invalidVisionModel) {
         setSaveMessage({ type: 'local-error', text: '当前 Vision 模型不在已启用渠道的模型列表中，请重新选择。' });
         return;
@@ -1029,18 +1052,26 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
 
     setIsSaving(true);
     setSaveMessage(null);
+    setSaveWarnings([]);
 
     try {
       const updateItems = channelsToUpdateItems(channels, initialNames, runtimeConfigForSave, managesRuntimeConfig);
-      await systemConfigApi.update({
+      const response = await systemConfigApi.update({
         configVersion,
         maskToken,
         reloadNow: true,
         items: updateItems,
       });
-      setSaveMessage({ type: 'success', text: managesRuntimeConfig ? 'AI 配置已保存' : '渠道配置已保存' });
+      const responseWarnings = response.warnings || [];
       await onSaved(updateItems);
+      pendingSaveFeedbackFingerprintRef.current = {
+        channels: JSON.stringify(parseChannelsFromItems(updateItems)),
+        runtime: JSON.stringify(parseRuntimeConfigFromItems(updateItems)),
+      };
+      setSaveWarnings(responseWarnings);
+      setSaveMessage({ type: 'success', text: managesRuntimeConfig ? 'AI 配置已保存' : '渠道配置已保存' });
     } catch (error: unknown) {
+      setSaveWarnings([]);
       setSaveMessage({ type: 'error', error: getParsedApiError(error) });
     } finally {
       setIsSaving(false);
@@ -1065,13 +1096,15 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
 
       const text = result.success
         ? `连接成功${result.resolvedModel ? ` · ${result.resolvedModel}` : ''}${result.latencyMs ? ` · ${result.latencyMs} ms` : ''}`
-        : (result.error || result.message || '测试失败');
+        : buildLlmFailureText(result);
+      const hint = result.success ? undefined : getLlmTroubleshootingHint(result.errorCode, result.stage, 'test');
 
       setTestStates((previous) => ({
         ...previous,
         [index]: {
           status: result.success ? 'success' : 'error',
           text,
+          hint,
         },
       }));
     } catch (error: unknown) {
@@ -1094,6 +1127,7 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
       [channel.id]: {
         status: 'loading',
         text: '正在获取模型列表...',
+        hint: undefined,
         models: previous[channel.id]?.models || [],
       },
     }));
@@ -1115,7 +1149,8 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
           status: result.success ? 'success' : 'error',
           text: result.success
             ? `已获取 ${result.models.length} 个模型${result.latencyMs ? ` · ${result.latencyMs} ms` : ''}`
-            : (result.error || result.message || '获取模型失败'),
+            : buildLlmFailureText(result),
+          hint: result.success ? undefined : getLlmTroubleshootingHint(result.errorCode, result.stage, 'discovery'),
           models: result.success ? result.models : (previous[channel.id]?.models || []),
         },
       }));
@@ -1128,6 +1163,7 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
         [channel.id]: {
           status: 'error',
           text: parsed.message || '获取模型失败',
+          hint: undefined,
           models: previous[channel.id]?.models || [],
         },
       }));
@@ -1198,8 +1234,8 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
               <Select
                 value={addPreset}
                 onChange={setAddPreset}
-                options={Object.entries(CHANNEL_PRESETS).map(([value, preset]) => ({
-                  value,
+                options={LLM_PROVIDER_TEMPLATES.map((preset) => ({
+                  value: preset.channelId,
                   label: preset.label,
                 }))}
                 disabled={busy}
@@ -1364,6 +1400,21 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
             <InlineAlert
               variant="success"
               message={saveMessage.text}
+              className="rounded-lg px-3 py-2 text-sm shadow-none"
+            />
+          ) : null}
+
+          {saveWarnings.length > 0 ? (
+            <InlineAlert
+              variant="warning"
+              title="保存后提示"
+              message={(
+                <div className="space-y-1">
+                  {saveWarnings.map((warning) => (
+                    <p key={warning}>{warning}</p>
+                  ))}
+                </div>
+              )}
               className="rounded-lg px-3 py-2 text-sm shadow-none"
             />
           ) : null}
