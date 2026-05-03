@@ -5,7 +5,12 @@ import { getParsedApiError } from '../api/error';
 import { historyApi } from '../api/history';
 import type { AnalysisReport, HistoryItem, HistoryListResponse, TaskInfo } from '../types/analysis';
 import { getRecentStartDate, getTodayInShanghai } from '../utils/format';
-import { isObviouslyInvalidStockQuery, looksLikeStockCode, validateStockCode } from '../utils/validation';
+import {
+  isObviouslyInvalidStockQuery,
+  looksLikeStockCode,
+  parseBatchStockCodes,
+  validateStockCode,
+} from '../utils/validation';
 
 const PAGE_SIZE = 20;
 
@@ -313,6 +318,56 @@ export const useStockPoolStore = create<StockPoolState>((set, get) => ({
 
     if (!stockCodeInput) {
       set({ inputError: '请输入股票代码', duplicateError: null });
+      return;
+    }
+
+    const batchResult = parseBatchStockCodes(stockCodeInput);
+    if (batchResult.isBatch) {
+      if (batchResult.invalidCodes.length > 0 || batchResult.codes.length === 0) {
+        set({
+          inputError: `批量输入包含无效股票代码：${batchResult.invalidCodes.join('、') || stockCodeInput}`,
+          duplicateError: null,
+        });
+        return;
+      }
+
+      set({
+        inputError: undefined,
+        duplicateError: null,
+        error: null,
+        isAnalyzing: true,
+      });
+
+      const requestId = ++analyzeRequestSeq;
+      try {
+        await analysisApi.analyzeAsync({
+          stockCodes: batchResult.codes,
+          reportType: 'detailed',
+          originalQuery: originalQuery || stockCodeInput,
+          selectionSource,
+          notify,
+          forceRefresh,
+        });
+
+        if (requestId !== analyzeRequestSeq) {
+          return;
+        }
+
+        set({
+          query: '',
+          selectionSource: 'manual',
+        });
+      } catch (error) {
+        if (requestId !== analyzeRequestSeq) {
+          return;
+        }
+
+        set({ error: getParsedApiError(error) });
+      } finally {
+        if (requestId === analyzeRequestSeq) {
+          set({ isAnalyzing: false });
+        }
+      }
       return;
     }
 

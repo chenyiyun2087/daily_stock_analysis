@@ -9,6 +9,13 @@ import { isParsedApiError } from '../api/error';
 import { useAuth } from '../hooks';
 import { SettingsAlert } from '../components/settings';
 
+const MotionDiv = motion.div as React.ComponentType<
+  Omit<React.HTMLAttributes<HTMLDivElement>, 'style'> & { style?: unknown } & Record<string, unknown>
+>;
+const MotionP = motion.p as React.ComponentType<
+  Omit<React.HTMLAttributes<HTMLParagraphElement>, 'style'> & { style?: unknown } & Record<string, unknown>
+>;
+
 const LoginPage: React.FC = () => {
   const { login, passwordSet, setupState } = useAuth();
   const navigate = useNavigate();
@@ -77,14 +84,14 @@ const LoginPage: React.FC = () => {
       <div className="absolute inset-0 z-0 bg-[linear-gradient(to_right,var(--login-grid-line)_1px,transparent_1px),linear-gradient(to_bottom,var(--login-grid-line)_1px,transparent_1px)] bg-[size:24px_24px] [mask-image:var(--login-grid-mask)]" />
 
       {/* Parallax Glowing Orbs */}
-      <motion.div
+      <MotionDiv
         style={{
           x: useTransform(smoothX, [-0.5, 0.5], [-50, 50]),
           y: useTransform(smoothY, [-0.5, 0.5], [-50, 50]),
         }}
         className="absolute left-[20%] top-[20%] -z-10 h-[300px] w-[300px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--login-accent-glow)] blur-[100px]"
       />
-      <motion.div
+      <MotionDiv
         style={{
           x: useTransform(smoothX, [-0.5, 0.5], [60, -60]),
           y: useTransform(smoothY, [-0.5, 0.5], [60, -60]),
@@ -93,14 +100,14 @@ const LoginPage: React.FC = () => {
       />
 
       <div className="sm:mx-auto sm:w-full sm:max-w-md relative z-10">
-        <motion.div
+        <MotionDiv
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: "easeOut" }}
           className="flex flex-col items-center justify-center mb-10 relative"
         >
           {/* Immersive Full-Height Background Logo */}
-          <motion.div
+          <MotionDiv
             style={{
               x: useTransform(smoothX, [-0.5, 0.5], [-8, 8]),
               y: useTransform(smoothY, [-0.5, 0.5], [-8, 8]),
@@ -112,7 +119,7 @@ const LoginPage: React.FC = () => {
               <Cpu className="h-[70vh] w-[70vh] text-[hsl(200_80%_22%_/_0.4)] brightness-50" />
               <TrendingUp className="absolute h-[25vh] w-[25vh] translate-x-[15vh] translate-y-[15vh] text-emerald-900/30 brightness-50" />
             </div>
-          </motion.div>
+          </MotionDiv>
 
           <div className="mt-8 flex flex-col items-center">
             <h2 className="text-4xl font-extrabold tracking-tighter text-[var(--login-text-primary)] sm:text-6xl">
@@ -124,7 +131,7 @@ const LoginPage: React.FC = () => {
             </h3>
           </div>
 
-          <motion.div 
+          <MotionDiv
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.3 }}
@@ -132,10 +139,10 @@ const LoginPage: React.FC = () => {
           >
             <Network className="h-3 w-3" />
             <span>V3.X QUANTITATIVE SYSTEM</span>
-          </motion.div>
-        </motion.div>
+          </MotionDiv>
+        </MotionDiv>
 
-        <motion.div
+        <MotionDiv
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.5, delay: 0.1 }}
@@ -205,7 +212,7 @@ const LoginPage: React.FC = () => {
               </div>
 
               {error && (
-                <motion.div
+                <MotionDiv
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
                   className="overflow-hidden"
@@ -216,7 +223,7 @@ const LoginPage: React.FC = () => {
                     variant="error"
                     className="!border-[var(--login-error-border)] !bg-[var(--login-error-bg)] !text-[var(--login-error-text)]"
                   />
-                </motion.div>
+                </MotionDiv>
               )}
 
               <Button
@@ -240,17 +247,17 @@ const LoginPage: React.FC = () => {
               </Button>
             </form>
           </div>
-        </motion.div>
+        </MotionDiv>
 
         {/* Footer info */}
-        <motion.p 
+        <MotionP
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.6 }}
           className="mt-8 text-center font-mono text-xs uppercase tracking-wider text-[var(--login-text-muted)]"
         >
           Secure Connection Established via DSA-V3-TLS
-        </motion.p>
+        </MotionP>
       </div>
 
       <style dangerouslySetInnerHTML={{ __html: `

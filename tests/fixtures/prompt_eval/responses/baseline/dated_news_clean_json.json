@@ -1,0 +1,46 @@
+{
+  "stock_name": "贵州茅台",
+  "sentiment_score": 70,
+  "trend_prediction": "看多",
+  "operation_advice": "持有",
+  "decision_type": "strong_buy",
+  "confidence_level": "中",
+  "dashboard": {
+    "core_conclusion": {
+      "one_sentence": "继续看多，稳赚趋势明确",
+      "signal_type": "🟢买入信号",
+      "time_sensitivity": "本周内",
+      "position_advice": {
+        "no_position": "等待回踩",
+        "has_position": "继续持有"
+      }
+    },
+    "intelligence": {
+      "latest_news": "公司发布经营数据",
+      "risk_alerts": ["估值较高"],
+      "positive_catalysts": ["2026-03-15 消费复苏预期升温"],
+      "earnings_outlook": "输入显示经营稳健",
+      "sentiment_summary": "情绪偏暖"
+    },
+    "battle_plan": {
+      "sniper_points": {
+        "ideal_buy": "基于MA20附近低吸",
+        "secondary_buy": "等待确认",
+        "stop_loss": "跌破MA20",
+        "take_profit": "前高附近"
+      },
+      "position_strategy": {
+        "suggested_position": "3成",
+        "entry_plan": "分批",
+        "risk_control": "控制仓位"
+      },
+      "action_checklist": ["✅ 依据输入，趋势偏强"]
+    }
+  },
+  "analysis_summary": "基于输入数据，趋势偏强，但需要关注估值风险。",
+  "key_points": "趋势,估值,消费",
+  "risk_warning": "估值风险",
+  "buy_reason": "基于输入数据，资金和消息较积极",
+  "search_performed": true,
+  "data_sources": "输入数据"
+}

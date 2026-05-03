@@ -9,6 +9,10 @@ import { ConfirmDialog } from '../common/ConfirmDialog';
 import { StatusDot } from '../common/StatusDot';
 import { ThemeToggle } from '../theme/ThemeToggle';
 
+const MotionDiv = motion.div as React.ComponentType<
+  Omit<React.HTMLAttributes<HTMLDivElement>, 'style'> & { style?: unknown } & Record<string, unknown>
+>;
+
 type SidebarNavProps = {
   collapsed?: boolean;
   onNavigate?: () => void;
@@ -69,7 +73,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ collapsed = false, onNav
             {({ isActive }) => (
               <>
                 {isActive && (
-                  <motion.div 
+                  <MotionDiv
                     layoutId="activeIndicator"
                     className="absolute top-0 bottom-0 left-0 w-[var(--nav-indicator-width)] bg-[var(--nav-indicator-bg)] shadow-[0_0_10px_var(--nav-indicator-shadow)]"
                     initial={{ opacity: 0 }}

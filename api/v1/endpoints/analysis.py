@@ -69,6 +69,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _SUPPORTED_FREE_TEXT_RE = re.compile(r"^[A-Za-z0-9.*\-+\u3400-\u9fff\s]+$")
+_STOCK_SPLIT_RE = re.compile(r"[,，]+")
 
 
 def _invalid_analysis_input_error() -> HTTPException:
@@ -119,6 +120,28 @@ def _resolve_and_normalize_input(raw_value: str) -> str:
     raise _invalid_analysis_input_error()
 
 
+def _extract_stock_inputs(request: AnalyzeRequest) -> list[str]:
+    """
+    Extract raw stock inputs from request payload.
+
+    Supports both:
+    - stock_code: "600519,000858"
+    - stock_codes: ["600519", "000858"] or ["600519,000858"]
+    """
+    raw_items: list[str] = []
+
+    if request.stock_code:
+        raw_items.extend(_STOCK_SPLIT_RE.split(str(request.stock_code)))
+
+    if request.stock_codes:
+        for item in request.stock_codes:
+            if item is None:
+                continue
+            raw_items.extend(_STOCK_SPLIT_RE.split(str(item)))
+
+    return [item.strip() for item in raw_items if item and item.strip()]
+
+
 # ============================================================
 # POST /analyze - 触发股票分析
 # ============================================================
@@ -167,18 +190,19 @@ def trigger_analysis(
         HTTPException: 500 - 分析失败
     """
     # 校验请求参数
-    stock_codes = []
-    if request.stock_code:
-        stock_codes.append(request.stock_code)
-    if request.stock_codes:
-        stock_codes.extend(request.stock_codes)
+    has_any_input_field = bool(
+        request.stock_code is not None
+        or (request.stock_codes is not None and len(request.stock_codes) > 0)
+    )
+    stock_codes = _extract_stock_inputs(request)
 
     if not stock_codes:
+        message = "股票代码不能为空或仅包含空白字符" if has_any_input_field else "必须提供 stock_code 或 stock_codes 参数"
         raise HTTPException(
             status_code=400,
             detail={
                 "error": "validation_error",
-                "message": "必须提供 stock_code 或 stock_codes 参数"
+                "message": message,
             }
         )
 

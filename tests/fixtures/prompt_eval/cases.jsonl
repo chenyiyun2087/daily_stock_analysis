@@ -1,0 +1,2 @@
+{"id":"missing_technical_news_conflict","language":"zh","analysis_date":"2026-03-16","news_window_days":7,"missing_data_expected":true,"disallow_specific_prices":true,"requires_conflict_handling":true,"forbidden_facts":["机构上调目标价","2026-03-01"]}
+{"id":"dated_news_clean_json","language":"zh","analysis_date":"2026-03-16","news_window_days":7,"missing_data_expected":false,"disallow_specific_prices":false,"requires_conflict_handling":false,"forbidden_facts":["必然上涨","稳赚"]}

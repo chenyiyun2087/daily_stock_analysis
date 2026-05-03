@@ -18,8 +18,11 @@ from dataclasses import dataclass
 from typing import Optional, Dict, Any, List, Tuple, Callable
 
 import litellm
-from json_repair import repair_json
 from litellm import Router
+try:
+    from json_repair import repair_json
+except ImportError:  # optional dependency
+    repair_json = None
 
 from src.agent.llm_adapter import get_thinking_extra_body
 from src.agent.skills.defaults import CORE_TRADING_SKILL_POLICY_ZH
@@ -48,6 +51,31 @@ from src.schemas.report_schema import AnalysisReportSchema
 from src.market_context import get_market_role, get_market_guidelines
 
 logger = logging.getLogger(__name__)
+_JSON_REPAIR_MISSING_LOGGED = False
+
+
+PROMPT_QUALITY_GUARDRAILS_ZH = """## 分析纪律与事实边界（必须遵守）
+
+1. 只基于本次输入中的行情、技术指标、财报、新闻、上下文和已激活技能进行分析。
+2. 区分【输入事实】【分析推断】【不确定性】：关键结论必须能回指输入中的具体依据。
+3. 禁止编造价格、均线、成交量、财报、公告、新闻、机构观点、评级、目标价或市场传闻。
+4. 输入字段为 N/A、空值、未知或未提供时，必须写“数据缺失，无法判断”，不得用常识或历史印象补全。
+5. 技术面、基本面、消息面冲突时，必须说明冲突点，并降低置信度或给出等待确认条件。
+6. 禁止使用“必然上涨”“一定下跌”“稳赚”“无风险”等确定性或承诺性表达。
+7. 价格点位、止损位、目标位只有在输入中存在当前价、均线、支撑/压力或明确计算依据时才允许给出；否则使用条件型表述或说明数据缺失。
+"""
+
+
+PROMPT_QUALITY_GUARDRAILS_EN = """## Analysis Discipline and Factual Boundaries (mandatory)
+
+1. Base the analysis only on the provided market data, indicators, fundamentals, news, context, and active skills.
+2. Distinguish input facts, analytical inference, and uncertainty; every key conclusion must trace back to specific input evidence.
+3. Do not invent prices, moving averages, volume, financials, filings, news, analyst views, ratings, target prices, or market rumors.
+4. When an input field is N/A, empty, unknown, or missing, state that the data is unavailable and cannot be judged; do not fill it from general knowledge.
+5. When technical, fundamental, and news signals conflict, explain the conflict and lower confidence or provide confirmation conditions.
+6. Avoid deterministic promises such as "must rise", "will definitely fall", "guaranteed", or "risk-free".
+7. Price levels, stops, and targets are allowed only when current price, moving averages, support/resistance, or explicit calculation inputs are provided; otherwise use conditional wording or state that data is unavailable.
+"""
 
 
 class _LiteLLMStreamError(RuntimeError):
@@ -655,7 +683,7 @@ class GeminiAnalyzer:
 
 1. **核心结论先行**：一句话说清该买该卖
 2. **分持仓建议**：空仓者和持仓者给不同建议
-3. **精确狙击点**：必须给出具体价格，不说模糊的话
+3. **可追溯狙击点**：有行情/均线/支撑压力依据时给出具体价格；依据不足时明确写“数据缺失，无法判断”
 4. **检查清单可视化**：用 ✅⚠️❌ 明确显示每项检查结果
 5. **风险优先级**：舆情中的风险点要醒目标出"""
 
@@ -802,7 +830,7 @@ class GeminiAnalyzer:
 
 1. **核心结论先行**：一句话说清该买该卖
 2. **分持仓建议**：空仓者和持仓者给不同建议
-3. **精确狙击点**：必须给出具体价格，不说模糊的话
+3. **可追溯狙击点**：有行情/均线/支撑压力依据时给出具体价格；依据不足时明确写“数据缺失，无法判断”
 4. **检查清单可视化**：用 ✅⚠️❌ 明确显示每项检查结果
 5. **风险优先级**：舆情中的风险点要醒目标出"""
 
@@ -908,7 +936,7 @@ class GeminiAnalyzer:
                 .replace("{skills_section}", skills_section)
             )
         if lang == "en":
-            return base_prompt + """
+            return base_prompt + "\n\n" + PROMPT_QUALITY_GUARDRAILS_EN + """
 
 ## Output Language (highest priority)
 
@@ -917,14 +945,16 @@ class GeminiAnalyzer:
 - All human-readable JSON values must be written in English.
 - Use the common English company name when you are confident; otherwise keep the original listed company name instead of inventing one.
 - This includes `stock_name`, `trend_prediction`, `operation_advice`, `confidence_level`, nested dashboard text, checklist items, and all narrative summaries.
+- Return exactly one valid JSON object. Do not wrap it in Markdown fences and do not add explanatory text before or after the JSON.
 """
-        return base_prompt + """
+        return base_prompt + "\n\n" + PROMPT_QUALITY_GUARDRAILS_ZH + """
 
 ## 输出语言（最高优先级）
 
 - 所有 JSON 键名保持不变。
 - `decision_type` 必须保持为 `buy|hold|sell`。
 - 所有面向用户的人类可读文本值必须使用中文。
+- 只返回一个有效 JSON 对象，不要使用 Markdown 代码块，不要在 JSON 前后添加解释文字。
 """
 
     def _has_channel_config(self, config: Config) -> bool:
@@ -1489,7 +1519,11 @@ class GeminiAnalyzer:
         no_data_text = get_no_data_text(report_language)
         
         # ========== 构建决策仪表盘格式的输入 ==========
+        guardrails = PROMPT_QUALITY_GUARDRAILS_EN if report_language == "en" else PROMPT_QUALITY_GUARDRAILS_ZH
+
         prompt = f"""# 决策仪表盘分析请求
+
+{guardrails}
 
 ## 📊 股票基础信息
 | 项目 | 数据 |
@@ -1759,9 +1793,16 @@ class GeminiAnalyzer:
 - **股票名称**：必须输出正确的中文全称（如"贵州茅台"而非"股票600519"）
 - **核心结论**：一句话说清该买/该卖/该等
 - **持仓分类建议**：空仓者怎么做 vs 持仓者怎么做
-- **具体狙击点位**：买入价、止损价、目标价（精确到分）
+- **具体狙击点位**：买入价、止损价、目标价必须来自输入中的价格、均线、支撑/压力或可说明的计算依据；依据不足时写“{no_data_text}，无法判断”
 - **检查清单**：每项用 ✅/⚠️/❌ 标记
 - **消息面时间合规**：`latest_news`、`risk_alerts`、`positive_catalysts` 不得包含超出近{news_window_days}日或时间未知的信息
+
+### JSON 输出协议：
+- 只输出一个完整 JSON 对象
+- 不要输出 Markdown 代码块
+- 不要在 JSON 前后添加解释、免责声明或自然语言前缀
+- JSON 键名必须与系统提示词中的结构保持一致
+- 无法判断的数值字段使用 "N/A" 或“{no_data_text}，无法判断”
 
 请输出完整的 JSON 格式决策仪表盘。"""
 
@@ -1775,6 +1816,7 @@ class GeminiAnalyzer:
 - This includes `stock_name`, `trend_prediction`, `operation_advice`, `confidence_level`, all nested dashboard text, checklist items, and every summary field.
 - Use the common English company name when you are confident. If not, keep the listed company name rather than inventing one.
 - When data is missing, explain it in English instead of Chinese.
+- Return exactly one valid JSON object. Do not wrap it in Markdown fences and do not add explanatory text before or after the JSON.
 """
         else:
             prompt += f"""
@@ -1784,6 +1826,7 @@ class GeminiAnalyzer:
 - `decision_type` 必须保持为 `buy`、`hold`、`sell`。
 - 所有面向用户的人类可读文本值必须使用中文。
 - 当数据缺失时，请使用中文直接说明“{no_data_text}，无法判断”。
+- 只返回一个有效 JSON 对象，不要使用 Markdown 代码块，不要在 JSON 前后添加解释文字。
 """
         
         return prompt
@@ -1884,7 +1927,11 @@ class GeminiAnalyzer:
         """Build complement instruction for missing mandatory fields."""
         report_language = normalize_report_language(report_language)
         if report_language == "en":
-            lines = ["### Completion requirements: fill the missing mandatory fields below and output the full JSON again:"]
+            lines = [
+                "### Completion requirements: fill the missing mandatory fields below and output the full JSON again:",
+                "- Preserve existing fields and JSON keys.",
+                "- Do not invent missing facts or price levels; use data-unavailable wording when evidence is absent.",
+            ]
             for f in missing_fields:
                 if f == "sentiment_score":
                     lines.append("- sentiment_score: integer score from 0 to 100")
@@ -1900,7 +1947,11 @@ class GeminiAnalyzer:
                     lines.append("- dashboard.battle_plan.sniper_points.stop_loss: stop-loss level")
             return "\n".join(lines)
 
-        lines = ["### 补全要求：请在上方分析基础上补充以下必填内容，并输出完整 JSON："]
+        lines = [
+            "### 补全要求：请在上方分析基础上补充以下必填内容，并输出完整 JSON：",
+            "- 保留已有字段和 JSON 键名。",
+            "- 不得为了补全字段编造事实或价格点位；缺少依据时写“数据缺失，无法判断”。",
+        ]
         for f in missing_fields:
             if f == "sentiment_score":
                 lines.append("- sentiment_score: 0-100 综合评分")
@@ -2053,6 +2104,7 @@ class GeminiAnalyzer:
     
     def _fix_json_string(self, json_str: str) -> str:
         """修复常见的 JSON 格式问题"""
+        global _JSON_REPAIR_MISSING_LOGGED
         import re
         
         # 移除注释
@@ -2066,8 +2118,15 @@ class GeminiAnalyzer:
         # 确保布尔值是小写
         json_str = json_str.replace('True', 'true').replace('False', 'false')
         
-        # fix by json-repair
-        json_str = repair_json(json_str)
+        # Fix by optional json-repair when available.
+        if repair_json is not None:
+            try:
+                json_str = repair_json(json_str)
+            except Exception as exc:
+                logger.debug("json_repair failed, fallback to regex-only cleanup: %s", exc)
+        elif not _JSON_REPAIR_MISSING_LOGGED:
+            logger.warning("Optional dependency 'json_repair' is not installed; using fallback JSON cleanup only.")
+            _JSON_REPAIR_MISSING_LOGGED = True
         
         return json_str
     

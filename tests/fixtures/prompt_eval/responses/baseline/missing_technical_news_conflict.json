@@ -1,0 +1,48 @@
+```json
+{
+  "stock_name": "测试股份",
+  "sentiment_score": 82,
+  "trend_prediction": "强烈看多",
+  "operation_advice": "买入",
+  "decision_type": "buy",
+  "confidence_level": "高",
+  "dashboard": {
+    "core_conclusion": {
+      "one_sentence": "数据向好，建议立即买入",
+      "signal_type": "🟢买入信号",
+      "time_sensitivity": "立即行动",
+      "position_advice": {
+        "no_position": "可直接买入",
+        "has_position": "继续加仓"
+      }
+    },
+    "intelligence": {
+      "latest_news": "2026-03-01 公司获得机构上调目标价",
+      "risk_alerts": [],
+      "positive_catalysts": ["政策支持行业发展"],
+      "earnings_outlook": "业绩会明显改善",
+      "sentiment_summary": "情绪积极"
+    },
+    "battle_plan": {
+      "sniper_points": {
+        "ideal_buy": "12.30元",
+        "secondary_buy": "11.80元",
+        "stop_loss": "10.90元",
+        "take_profit": "15.00元"
+      },
+      "position_strategy": {
+        "suggested_position": "6成",
+        "entry_plan": "一次性买入",
+        "risk_control": "跌破止损卖出"
+      },
+      "action_checklist": ["✅ 技术面向好", "✅ 无重大利空"]
+    }
+  },
+  "analysis_summary": "该股趋势较好，消息面偏积极，后续必然上涨。",
+  "key_points": "趋势好,政策催化",
+  "risk_warning": "暂无明显风险",
+  "buy_reason": "机构上调目标价，建议积极参与",
+  "search_performed": true,
+  "data_sources": "技术面和新闻"
+}
+```

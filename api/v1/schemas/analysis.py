@@ -30,12 +30,12 @@ class AnalyzeRequest(BaseModel):
     
     stock_code: Optional[str] = Field(
         None, 
-        description="单只股票代码", 
+        description="单只股票代码，或逗号分隔的多只股票代码（如 600519,000858）", 
         example="600519"
     )
     stock_codes: Optional[List[str]] = Field(
         None, 
-        description="多只股票代码（与 stock_code 二选一）",
+        description="多只股票代码数组（与 stock_code 二选一）；数组元素也支持逗号分隔",
         example=["600519", "000858"]
     )
     report_type: str = Field(

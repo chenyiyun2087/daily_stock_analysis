@@ -87,6 +87,10 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         self.assertIn("时间未知、无法确定发布日期的新闻一律忽略", prompt)
         self.assertIn("财报与分红（价值投资口径）", prompt)
         self.assertIn("禁止编造", prompt)
+        self.assertIn("分析纪律与事实边界", prompt)
+        self.assertIn("关键结论必须能回指输入中的具体依据", prompt)
+        self.assertIn("只输出一个完整 JSON 对象", prompt)
+        self.assertIn("依据不足时写", prompt)
 
     def test_prompt_prefers_context_news_window_days(self) -> None:
         with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
@@ -142,6 +146,21 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         self.assertNotIn("是否满足 MA5>MA10>MA20 多头排列", prompt)
         self.assertNotIn("超过5%必须标注\"严禁追高\"", prompt)
         self.assertNotIn("MA5>MA10>MA20为多头", prompt)
+
+    def test_system_prompt_contains_json_and_anti_hallucination_guardrails(self) -> None:
+        with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
+            analyzer = GeminiAnalyzer(
+                skill_instructions="### 技能 1: 缠论\n- 关注中枢与背驰",
+                default_skill_policy="",
+                use_legacy_default_prompt=False,
+            )
+
+        prompt = analyzer._get_analysis_system_prompt("zh", stock_code="600519")
+
+        self.assertIn("分析纪律与事实边界", prompt)
+        self.assertIn("禁止编造价格、均线、成交量、财报、公告、新闻", prompt)
+        self.assertIn("只返回一个有效 JSON 对象", prompt)
+        self.assertIn("数据缺失，无法判断", prompt)
 
 
 if __name__ == "__main__":

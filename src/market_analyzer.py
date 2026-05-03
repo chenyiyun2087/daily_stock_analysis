@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
+
 """
 ===================================
 大盘复盘分析模块
@@ -782,6 +784,11 @@ Lagging: {bottom_sectors_text if bottom_sectors_text else "N/A"}"""
 - No code blocks
 - Use emoji sparingly in headings (at most one per heading)
 - The entire fixed shell, headings, guidance, and conclusion must be in English
+- Base the recap only on the provided index, breadth, sector, and news inputs
+- Separate market facts, analytical inference, and uncertainty; do not present inference as verified fact
+- Do not invent index levels, turnover, sector leaders, policy news, or institutional views
+- If data is unavailable, state that it is unavailable instead of filling gaps from general knowledge
+- When price action and news conflict, explain the conflict and make the strategy plan more conservative
 
 ---
 
@@ -846,6 +853,11 @@ Output the report content directly, no extra commentary.
 - emoji 仅在标题处少量使用（每个标题最多1个）
 - 报告要像交易员盘后工作台：先给结论，再按数据表、主线、催化、计划展开
 - 不要重复列出已由系统注入的表格数据；正文负责解释表格背后的含义
+- 只基于下方输入的指数、市场宽度、板块和新闻材料复盘
+- 区分【市场事实】【分析推断】【不确定性】，不得把推断写成已验证事实
+- 禁止编造指数点位、成交额、板块涨跌、政策消息、机构观点或市场传闻
+- 数据缺失时必须明确说明“数据缺失，无法判断”，不得用常识补全
+- 行情与新闻信号冲突时，必须说明冲突点，并让交易计划更保守
 
 ---
 

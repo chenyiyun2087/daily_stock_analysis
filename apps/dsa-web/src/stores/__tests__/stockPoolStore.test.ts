@@ -202,6 +202,42 @@ describe('stockPoolStore', () => {
     }));
   });
 
+  it('submits comma-separated stock codes as a single batch analysis request', async () => {
+    vi.mocked(analysisApi.analyzeAsync).mockResolvedValue({
+      accepted: [
+        { taskId: 'task-1', stockCode: '600519', status: 'pending' },
+        { taskId: 'task-2', stockCode: '000858', status: 'pending' },
+        { taskId: 'task-3', stockCode: 'AAPL', status: 'pending' },
+      ],
+      duplicates: [],
+      message: 'accepted',
+    } as never);
+
+    useStockPoolStore.getState().setQuery('600519, 000858, aapl');
+    await useStockPoolStore.getState().submitAnalysis();
+
+    const state = useStockPoolStore.getState();
+    expect(state.inputError).toBeUndefined();
+    expect(state.isAnalyzing).toBe(false);
+    expect(state.query).toBe('');
+    expect(analysisApi.analyzeAsync).toHaveBeenCalledWith(expect.objectContaining({
+      stockCodes: ['600519', '000858', 'AAPL'],
+      reportType: 'detailed',
+      selectionSource: 'manual',
+      notify: true,
+    }));
+  });
+
+  it('rejects batch input when any stock code is invalid', async () => {
+    useStockPoolStore.getState().setQuery('600519,INVALID-1,AAPL');
+    await useStockPoolStore.getState().submitAnalysis();
+
+    const state = useStockPoolStore.getState();
+    expect(state.inputError).toContain('INVALID-1');
+    expect(state.isAnalyzing).toBe(false);
+    expect(analysisApi.analyzeAsync).not.toHaveBeenCalled();
+  });
+
   it('merges newly discovered history items during silent refresh', async () => {
     useStockPoolStore.setState({
       historyItems: [historyItem],

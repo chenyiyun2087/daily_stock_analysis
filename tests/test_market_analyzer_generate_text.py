@@ -553,6 +553,30 @@ class TestMarketAnalyzerBypassFix:
         assert "### 6. Strategy Framework" in result
         assert "### 一、市场总结" not in result
 
+    def test_market_review_prompt_contains_fact_boundary_guardrails(self):
+        from src.market_analyzer import MarketOverview, MarketIndex
+
+        ma = self._make_market_analyzer_with_mock_generate_text(return_value=None)
+        overview = MarketOverview(
+            date="2026-03-05",
+            indices=[
+                MarketIndex(
+                    code="000001",
+                    name="上证指数",
+                    current=3300.0,
+                    change=5.0,
+                    change_pct=0.15,
+                )
+            ],
+        )
+
+        prompt = ma._build_review_prompt(overview, [])
+
+        assert "只基于下方输入的指数、市场宽度、板块和新闻材料复盘" in prompt
+        assert "区分【市场事实】【分析推断】【不确定性】" in prompt
+        assert "禁止编造指数点位、成交额、板块涨跌" in prompt
+        assert "数据缺失，无法判断" in prompt
+
     def test_generate_template_review_keeps_chinese_shell_for_us_when_report_language_is_default(self):
         from src.core.market_profile import US_PROFILE
         from src.core.market_strategy import get_market_strategy_blueprint

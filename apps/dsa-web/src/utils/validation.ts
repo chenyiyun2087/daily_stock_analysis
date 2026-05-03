@@ -4,6 +4,12 @@ interface ValidationResult {
   normalized: string;
 }
 
+interface BatchStockCodeParseResult {
+  isBatch: boolean;
+  codes: string[];
+  invalidCodes: string[];
+}
+
 const SUPPORTED_QUERY_CHARACTERS = /^[A-Z0-9.\u3400-\u9FFF\s]+$/;
 
 const STOCK_CODE_PATTERNS = [
@@ -15,6 +21,8 @@ const STOCK_CODE_PATTERNS = [
   /^\d{1,5}\.HK$/, // HK suffix format, for example 00700.HK
   /^[A-Z]{1,5}(?:\.(?:US|[A-Z]))?$/, // Common US ticker format
 ];
+
+const BATCH_STOCK_CODE_SPLITTER = /[,，]/;
 
 /**
  * Check whether the input looks like a stock code.
@@ -40,6 +48,49 @@ export const validateStockCode = (value: string): ValidationResult => {
     valid,
     message: valid ? undefined : '股票代码格式不正确',
     normalized,
+  };
+};
+
+/**
+ * Parse and validate comma-separated stock code input from the homepage.
+ */
+export const parseBatchStockCodes = (value: string): BatchStockCodeParseResult => {
+  const normalized = value.trim().toUpperCase();
+
+  if (!normalized || !BATCH_STOCK_CODE_SPLITTER.test(normalized)) {
+    return { isBatch: false, codes: [], invalidCodes: [] };
+  }
+
+  const rawCodes = normalized
+    .split(BATCH_STOCK_CODE_SPLITTER)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (rawCodes.length <= 1) {
+    return { isBatch: false, codes: [], invalidCodes: [] };
+  }
+
+  const uniqueCodes: string[] = [];
+  const seen = new Set<string>();
+  const invalidCodes: string[] = [];
+
+  for (const code of rawCodes) {
+    const { valid, normalized: normalizedCode } = validateStockCode(code);
+    if (!valid) {
+      invalidCodes.push(code);
+      continue;
+    }
+
+    if (!seen.has(normalizedCode)) {
+      seen.add(normalizedCode);
+      uniqueCodes.push(normalizedCode);
+    }
+  }
+
+  return {
+    isBatch: true,
+    codes: uniqueCodes,
+    invalidCodes,
   };
 };
 

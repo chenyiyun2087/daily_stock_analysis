@@ -23,7 +23,11 @@ from typing import List, Dict, Any, Optional, Tuple
 from itertools import cycle
 from urllib.parse import parse_qsl, unquote, urlparse
 import requests
-from newspaper import Article, Config
+try:
+    from newspaper import Article, Config
+except ImportError:  # optional dependency
+    Article = None
+    Config = None
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -79,6 +83,9 @@ def fetch_url_content(url: str, timeout: int = 5) -> str:
     """
     获取 URL 网页正文内容 (使用 newspaper3k)
     """
+    if Article is None or Config is None:
+        logger.debug("Optional dependency 'newspaper3k' is not installed, skip content extraction.")
+        return ""
     try:
         # 配置 newspaper3k
         config = Config()

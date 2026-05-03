@@ -99,6 +99,22 @@ class TestAnalysisIntegration:
         assert len(kwargs["stock_codes"]) == 1
         assert kwargs["stock_codes"] == ["600519"]
 
+    def test_trigger_analysis_accepts_comma_separated_codes(self, client, mock_task_queue):
+        """Test comma-separated codes are split and submitted as batch tasks."""
+        mock_task_queue.submit_tasks_batch.return_value = ([], [])
+
+        client.post(
+            "/api/v1/analysis/analyze",
+            json={
+                "stock_code": "600519, 000858，AAPL",
+                "async_mode": True
+            }
+        )
+
+        mock_task_queue.submit_tasks_batch.assert_called_once()
+        _, kwargs = mock_task_queue.submit_tasks_batch.call_args
+        assert kwargs["stock_codes"] == ["600519", "000858", "AAPL"]
+
     def test_trigger_analysis_dos_protection(self, client):
         """Test that excessive stock codes are rejected."""
         too_many_codes = [f"{i:06d}" for i in range(101)]

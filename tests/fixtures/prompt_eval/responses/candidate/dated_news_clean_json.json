@@ -1,0 +1,46 @@
+{
+  "stock_name": "贵州茅台",
+  "sentiment_score": 64,
+  "trend_prediction": "震荡偏强",
+  "operation_advice": "持有",
+  "decision_type": "hold",
+  "confidence_level": "中",
+  "dashboard": {
+    "core_conclusion": {
+      "one_sentence": "基于输入走势偏强，但仍需控制估值风险",
+      "signal_type": "🟡持有观望",
+      "time_sensitivity": "本周内",
+      "position_advice": {
+        "no_position": "空仓者等待回踩或量能确认",
+        "has_position": "持仓者可继续持有并设置条件风控"
+      }
+    },
+    "intelligence": {
+      "latest_news": "2026-03-15 输入新闻显示消费复苏预期升温。",
+      "risk_alerts": ["2026-03-14 输入信息显示估值仍处较高区间，需警惕回撤"],
+      "positive_catalysts": ["2026-03-15 消费复苏预期可能改善市场情绪"],
+      "earnings_outlook": "基于输入数据，经营表现相对稳健，但未提供新的财报增速证据。",
+      "sentiment_summary": "基于输入新闻，情绪偏暖但不足以支持确定性结论"
+    },
+    "battle_plan": {
+      "sniper_points": {
+        "ideal_buy": "基于输入，等待MA20附近或支撑确认",
+        "secondary_buy": "放量确认后再分批",
+        "stop_loss": "跌破关键均线或输入支撑位后风控",
+        "take_profit": "接近前高或估值压力加大时分批兑现"
+      },
+      "position_strategy": {
+        "suggested_position": "3成以内",
+        "entry_plan": "分批，避免追高",
+        "risk_control": "以均线和估值风险作为观察条件"
+      },
+      "action_checklist": ["✅ 基于输入，趋势偏强", "⚠️ 估值风险仍需观察", "✅ 新闻日期在窗口内"]
+    }
+  },
+  "analysis_summary": "基于输入数据，该股走势偏强且消息面偏暖，但估值风险仍在，适合持有或等待确认。",
+  "key_points": "输入走势偏强,新闻偏暖,估值风险",
+  "risk_warning": "需关注估值回落和量能不足风险。",
+  "buy_reason": "当前结论依据来自输入行情和近7日新闻，但不构成确定性买入信号。",
+  "search_performed": true,
+  "data_sources": "输入行情、技术指标和近7日新闻"
+}

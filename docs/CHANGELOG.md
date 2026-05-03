@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
+- [修复] `src/analyzer.py` 在缺失可选依赖 `json_repair` 时改为自动降级解析，避免 Web 端点击“分析”因 `No module named 'json_repair'` 直接失败。
+- [修复] 修正 `requirements.txt` 中 `json-repair` 的 Python 版本约束（Py3.9 使用 `<0.45`），并将 `src/search_service.py` 的 `newspaper3k` 导入改为可选降级，避免依赖缺失导致分析流程导入时崩溃。
+- [新功能] `POST /api/v1/analysis/analyze` 支持逗号分隔的多股票输入（如 `stock_code: "600519,000858"`），API 将自动拆分并循环提交分析任务（异步模式）。
+- [改进] Web 首页输入框支持逗号分隔股票代码（`,` / `，`）的一次性批量提交，识别为股票集合时将按批量任务异步分析。
+- [改进] 个股分析与大盘复盘提示词新增事实边界、数据缺失、证据回指和 JSON 输出协议约束，降低 Qwen 等模型编造价格、新闻或财报信息的风险。
+- [测试] 新增离线 prompt 输出评测脚本、样例集与对比报告，用于量化提示词优化前后的格式稳定性、事实可靠性和分析质量变化。
+- [文档] 新增 `docs/prompt-evaluation.md`，说明提示词评测样例、评分维度、对比命令和上线验收建议。
 
 ## [3.14.1] - 2026-04-26
 

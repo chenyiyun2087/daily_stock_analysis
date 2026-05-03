@@ -872,6 +872,7 @@ FastAPI provides RESTful API service for configuration management and triggering
 
 - **Configuration Management** - View/modify watchlist
 - **Quick Analysis** - Trigger analysis via API
+- **Batch Input on Home** - The Home input supports comma-separated stock codes (`,` / `，`); once recognized as a stock set, the request is submitted as an async batch analysis
 - **Real-time Progress** - Analysis task status updates in real-time, supports parallel tasks; the regular stock-analysis path now prefers LiteLLM streaming during the LLM stage and pushes finer-grained `message/progress` updates through task SSE
 - **Backtest Validation** - Evaluate historical analysis accuracy, query direction win rate and simulated returns
 - **API Documentation** - Visit `/docs` for Swagger UI
@@ -893,7 +894,7 @@ FastAPI provides RESTful API service for configuration management and triggering
 | `/api/health` | GET | Health check |
 | `/docs` | GET | API Swagger documentation |
 
-> Note: `POST /api/v1/analysis/analyze` supports only one stock when `async_mode=false`; batch `stock_codes` requires `async_mode=true`. The async `202` response returns a single `task_id` for one stock, or an `accepted` / `duplicates` summary for batch requests.
+> Note: `POST /api/v1/analysis/analyze` supports only one stock when `async_mode=false`; batch requests require `async_mode=true`. Batch input supports both `stock_codes` arrays and comma-separated input (for example, `stock_code: "600519,000858"` or `stock_codes: ["600519,000858"]`). The async `202` response returns a single `task_id` for one stock, or an `accepted` / `duplicates` summary for batch requests.
 
 > Progress-stream note: `GET /api/v1/analysis/tasks/stream` now emits `task_progress` in addition to `task_created / task_started / task_completed / task_failed`. The regular analysis path updates `progress` and `message` across quote preparation, news retrieval, context assembly, LLM generation, and report persistence. Streaming chunks are accumulated only on the server side; history is persisted only after the final JSON parses successfully. If streaming is unavailable before the first chunk, the system falls back to the previous non-stream request. If a stream fails after partial output has already arrived, the system first retries non-stream for the same model, then continues through existing fallback models in the original order (primary + fallback list).
 > If a progress callback fails, the analysis flow continues, and the exception is now logged at warning level to help troubleshoot SSE delivery gaps.
@@ -909,6 +910,11 @@ curl http://127.0.0.1:8000/api/health
 curl -X POST http://127.0.0.1:8000/api/v1/analysis/analyze \
   -H 'Content-Type: application/json' \
   -d '{"stock_code": "600519"}'
+
+# Trigger batch analysis (comma-separated input)
+curl -X POST http://127.0.0.1:8000/api/v1/analysis/analyze \
+  -H 'Content-Type: application/json' \
+  -d '{"stock_code": "600519,000858,AAPL", "async_mode": true}'
 
 # Query task status
 curl http://127.0.0.1:8000/api/v1/analysis/status/<task_id>
