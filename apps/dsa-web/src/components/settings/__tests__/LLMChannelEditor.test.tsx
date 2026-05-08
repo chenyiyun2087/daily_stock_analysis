@@ -146,6 +146,84 @@ describe('LLMChannelEditor', () => {
     expect(screen.getByLabelText('模型（逗号分隔）')).toHaveValue(models);
   });
 
+  it('shows provider capability badges, official sources, and config hints', async () => {
+    render(
+      <LLMChannelEditor
+        items={[
+          { key: 'LLM_CHANNELS', value: 'openrouter' },
+          { key: 'LLM_OPENROUTER_PROTOCOL', value: 'openai' },
+          { key: 'LLM_OPENROUTER_BASE_URL', value: 'https://openrouter.ai/api/v1' },
+          { key: 'LLM_OPENROUTER_ENABLED', value: 'true' },
+          { key: 'LLM_OPENROUTER_API_KEY', value: 'sk-or-test' },
+          { key: 'LLM_OPENROUTER_MODELS', value: '~anthropic/claude-sonnet-latest' },
+        ]}
+        configVersion="v1"
+        maskToken="******"
+        onSaved={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /OpenRouter/i }));
+
+    expect(await screen.findByText('配置参考')).toBeInTheDocument();
+    expect(screen.getByText('OpenAI 兼容')).toBeInTheDocument();
+    expect(screen.getByText('聚合平台')).toBeInTheDocument();
+    expect(screen.getByText('可获取模型')).toBeInTheDocument();
+    expect(screen.getByText(/模型列表和模型可见性依赖账号权限与 API Key/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'OpenRouter Models API' })).toHaveAttribute(
+      'href',
+      'https://openrouter.ai/docs/api/api-reference/models/get-models',
+    );
+    expect(screen.getByText(/能力标签仅用于配置参考，不代表运行时能力已验证通过/i)).toBeInTheDocument();
+  });
+
+  it('shows model-discovery capability for SiliconFlow provider hints', async () => {
+    render(
+      <LLMChannelEditor
+        items={[
+          { key: 'LLM_CHANNELS', value: 'siliconflow' },
+          { key: 'LLM_SILICONFLOW_PROTOCOL', value: 'openai' },
+          { key: 'LLM_SILICONFLOW_BASE_URL', value: 'https://api.siliconflow.cn/v1' },
+          { key: 'LLM_SILICONFLOW_ENABLED', value: 'true' },
+          { key: 'LLM_SILICONFLOW_API_KEY', value: 'sk-test' },
+          { key: 'LLM_SILICONFLOW_MODELS', value: 'deepseek-ai/DeepSeek-V3.2' },
+        ]}
+        configVersion="v1"
+        maskToken="******"
+        onSaved={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /SiliconFlow/i }));
+
+    expect(await screen.findByText('可获取模型')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'SiliconFlow Models' })).toBeInTheDocument();
+  });
+
+  it('does not show provider metadata for custom or unknown channels', async () => {
+    render(
+      <LLMChannelEditor
+        items={[
+          { key: 'LLM_CHANNELS', value: 'my_proxy' },
+          { key: 'LLM_MY_PROXY_PROTOCOL', value: 'openai' },
+          { key: 'LLM_MY_PROXY_BASE_URL', value: 'https://proxy.example.com/v1' },
+          { key: 'LLM_MY_PROXY_ENABLED', value: 'true' },
+          { key: 'LLM_MY_PROXY_API_KEY', value: 'sk-test' },
+          { key: 'LLM_MY_PROXY_MODELS', value: 'custom-model' },
+        ]}
+        configVersion="v1"
+        maskToken="******"
+        onSaved={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /my_proxy/i }));
+
+    expect(screen.queryByText('配置参考')).not.toBeInTheDocument();
+    expect(screen.queryByText(/官方来源/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/能力标签仅用于配置参考/i)).not.toBeInTheDocument();
+  });
+
   it('preserves manually edited base URL and models when switching preset names', async () => {
     render(
       <LLMChannelEditor
@@ -203,6 +281,7 @@ describe('LLMChannelEditor', () => {
       'MiniMax-M2.7,MiniMax-M2.7-highspeed',
       'MiniMax-M2.7,MiniMax-M2.7-highspeed',
     ]);
+    expect(screen.getAllByRole('link', { name: 'MiniMax OpenAI API' })).toHaveLength(1);
   });
 
   it('saves the MiniMax preset into LLM channel env keys', async () => {
@@ -861,6 +940,239 @@ describe('LLMChannelEditor', () => {
 
     expect(await screen.findByText(/聊天调用 · 鉴权失败：LLM authentication failed/i)).toBeInTheDocument();
     expect(screen.getByText(/请检查 API Key 是否正确/i)).toBeInTheDocument();
+    expect(screen.queryByText(/调整模型顺序或移除不可用模型/i)).not.toBeInTheDocument();
+  });
+
+  it('shows tested model and model-availability hints when a model is disabled', async () => {
+    testLLMChannel.mockResolvedValue({
+      success: false,
+      message: 'LLM channel test failed',
+      error: 'litellm.APIError: APIError: OpenAIException - Model disabled.',
+      errorCode: 'model_not_found',
+      stage: 'chat_completion',
+      retryable: false,
+      details: { reason: 'model_access_denied', model: 'openai/deepseek-ai/DeepSeek-V3' },
+      resolvedProtocol: 'openai',
+      resolvedModel: 'openai/deepseek-ai/DeepSeek-V3',
+      latencyMs: null,
+    });
+
+    render(
+      <LLMChannelEditor
+        items={[
+          { key: 'LLM_CHANNELS', value: 'siliconflow' },
+          { key: 'LLM_SILICONFLOW_PROTOCOL', value: 'openai' },
+          { key: 'LLM_SILICONFLOW_BASE_URL', value: 'https://api.siliconflow.cn/v1' },
+          { key: 'LLM_SILICONFLOW_ENABLED', value: 'true' },
+          { key: 'LLM_SILICONFLOW_API_KEY', value: 'secret-key' },
+          { key: 'LLM_SILICONFLOW_MODELS', value: 'deepseek-ai/DeepSeek-V3,Qwen/Qwen3-Coder' },
+        ]}
+        configVersion="v1"
+        maskToken="******"
+        onSaved={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /SiliconFlow/i }));
+    fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
+
+    expect(await screen.findByText(/聊天调用 · 模型不可用：LLM channel test failed/i)).toBeInTheDocument();
+    expect(screen.getByText(/本次测试模型：openai\/deepseek-ai\/DeepSeek-V3/i)).toBeInTheDocument();
+    expect(screen.getByText(/基础连接测试默认使用模型列表首项：deepseek-ai\/DeepSeek-V3/i)).toBeInTheDocument();
+    expect(screen.getByText(/基础连接测试默认只测试模型列表中的第一个模型/i)).toBeInTheDocument();
+    expect(screen.getByText(/调整模型顺序或移除不可用模型/i)).toBeInTheDocument();
+    expect(screen.getByText(/模型是否已开通、账号是否可见/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Base URL、代理、TLS/i)).not.toBeInTheDocument();
+    expect(testLLMChannel).toHaveBeenCalledWith(expect.objectContaining({
+      models: ['deepseek-ai/DeepSeek-V3', 'Qwen/Qwen3-Coder'],
+    }));
+  });
+
+  it('shows focused quota exceeded troubleshooting hints', async () => {
+    testLLMChannel.mockResolvedValue({
+      success: false,
+      message: 'LLM request was rejected by quota or rate limiting',
+      error: 'quota exceeded',
+      errorCode: 'quota',
+      stage: 'chat_completion',
+      retryable: true,
+      details: { reason: 'quota_exceeded' },
+      resolvedProtocol: 'openai',
+      resolvedModel: 'openai/gpt-4o-mini',
+      latencyMs: null,
+    });
+
+    render(
+      <LLMChannelEditor
+        items={[{ key: 'LLM_CHANNELS', value: 'openai' }, { key: 'LLM_OPENAI_PROTOCOL', value: 'openai' }, { key: 'LLM_OPENAI_BASE_URL', value: 'https://api.openai.com/v1' }, { key: 'LLM_OPENAI_ENABLED', value: 'true' }, { key: 'LLM_OPENAI_API_KEY', value: 'secret-key' }, { key: 'LLM_OPENAI_MODELS', value: 'gpt-4o-mini' }]}
+        configVersion="v1"
+        maskToken="******"
+        onSaved={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /OpenAI 官方/i }));
+    fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
+
+    expect(await screen.findByText(/服务商返回配额已耗尽/i)).toBeInTheDocument();
+    expect(screen.queryByText(/调整模型顺序或移除不可用模型/i)).not.toBeInTheDocument();
+  });
+
+  it('does not show model-list action hints for network failures', async () => {
+    testLLMChannel.mockResolvedValue({
+      success: false,
+      message: 'LLM request failed before a valid response was returned',
+      error: 'DNS lookup failed',
+      errorCode: 'network_error',
+      stage: 'chat_completion',
+      retryable: true,
+      details: { reason: 'dns_error' },
+      resolvedProtocol: 'openai',
+      resolvedModel: 'openai/gpt-4o-mini',
+      latencyMs: null,
+    });
+
+    render(
+      <LLMChannelEditor
+        items={[{ key: 'LLM_CHANNELS', value: 'openai' }, { key: 'LLM_OPENAI_PROTOCOL', value: 'openai' }, { key: 'LLM_OPENAI_BASE_URL', value: 'https://api.openai.com/v1' }, { key: 'LLM_OPENAI_ENABLED', value: 'true' }, { key: 'LLM_OPENAI_API_KEY', value: 'secret-key' }, { key: 'LLM_OPENAI_MODELS', value: 'gpt-4o-mini' }]}
+        configVersion="v1"
+        maskToken="******"
+        onSaved={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /OpenAI 官方/i }));
+    fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
+
+    expect(await screen.findByText(/域名解析失败/i)).toBeInTheDocument();
+    expect(screen.queryByText(/调整模型顺序或移除不可用模型/i)).not.toBeInTheDocument();
+  });
+
+  it('does not request runtime capabilities during the basic connection test', async () => {
+    testLLMChannel.mockResolvedValue({
+      success: true,
+      message: 'LLM channel test succeeded',
+      error: null,
+      errorCode: null,
+      stage: 'chat_completion',
+      retryable: false,
+      details: {},
+      resolvedProtocol: 'openai',
+      resolvedModel: 'openai/gpt-4o-mini',
+      latencyMs: 80,
+      capabilityResults: {},
+    });
+
+    render(
+      <LLMChannelEditor
+        items={[{ key: 'LLM_CHANNELS', value: 'openai' }, { key: 'LLM_OPENAI_PROTOCOL', value: 'openai' }, { key: 'LLM_OPENAI_BASE_URL', value: 'https://api.openai.com/v1' }, { key: 'LLM_OPENAI_ENABLED', value: 'true' }, { key: 'LLM_OPENAI_API_KEY', value: 'secret-key' }, { key: 'LLM_OPENAI_MODELS', value: 'gpt-4o-mini' }]}
+        configVersion="v1"
+        maskToken="******"
+        onSaved={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /OpenAI 官方/i }));
+    fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
+
+    await screen.findByText(/连接成功 · openai\/gpt-4o-mini/i);
+    expect(testLLMChannel).toHaveBeenCalledWith(expect.not.objectContaining({ capabilityChecks: expect.anything() }));
+  });
+
+  it('runs explicit runtime capability checks and shows detailed hints', async () => {
+    testLLMChannel.mockResolvedValue({
+      success: true,
+      message: 'LLM channel test succeeded',
+      error: null,
+      errorCode: null,
+      stage: 'chat_completion',
+      retryable: false,
+      details: {},
+      resolvedProtocol: 'openai',
+      resolvedModel: 'openai/gpt-4o-mini',
+      latencyMs: 80,
+      capabilityResults: {
+        json: {
+          status: 'passed',
+          message: 'JSON output capability check passed',
+          errorCode: null,
+          stage: 'capability_json',
+          retryable: false,
+          details: { reason: 'json_valid' },
+        },
+        tools: {
+          status: 'failed',
+          message: 'LLM channel does not support tools capability',
+          errorCode: 'capability_unsupported',
+          stage: 'capability_tools',
+          retryable: false,
+          details: { reason: 'capability_unsupported' },
+        },
+      },
+    });
+
+    render(
+      <LLMChannelEditor
+        items={[{ key: 'LLM_CHANNELS', value: 'openai' }, { key: 'LLM_OPENAI_PROTOCOL', value: 'openai' }, { key: 'LLM_OPENAI_BASE_URL', value: 'https://api.openai.com/v1' }, { key: 'LLM_OPENAI_ENABLED', value: 'true' }, { key: 'LLM_OPENAI_API_KEY', value: 'secret-key' }, { key: 'LLM_OPENAI_MODELS', value: 'gpt-4o-mini' }]}
+        configVersion="v1"
+        maskToken="******"
+        onSaved={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /OpenAI 官方/i }));
+    fireEvent.click(screen.getByLabelText('JSON'));
+    fireEvent.click(screen.getByLabelText('Tools'));
+    fireEvent.click(screen.getByRole('button', { name: '检测能力' }));
+
+    expect(await screen.findByText(/能力检测完成：1 通过 \/ 1 失败 \/ 0 跳过/i)).toBeInTheDocument();
+    expect(screen.getByText('JSON 通过')).toBeInTheDocument();
+    expect(screen.getByText('Tools 失败')).toBeInTheDocument();
+    expect(screen.getByText(/当前模型或兼容层不支持该能力/i)).toBeInTheDocument();
+    expect(testLLMChannel).toHaveBeenCalledWith(expect.objectContaining({ capabilityChecks: ['json', 'tools'] }));
+  });
+
+  it('shows skipped runtime capabilities when the base test fails', async () => {
+    testLLMChannel.mockResolvedValue({
+      success: false,
+      message: 'LLM authentication failed',
+      error: '401 Unauthorized',
+      errorCode: 'auth',
+      stage: 'chat_completion',
+      retryable: false,
+      details: { reason: 'api_key_rejected' },
+      resolvedProtocol: 'openai',
+      resolvedModel: 'openai/gpt-4o-mini',
+      latencyMs: null,
+      capabilityResults: {
+        json: {
+          status: 'skipped',
+          message: 'Skipped because the base channel test did not pass',
+          errorCode: 'skipped',
+          stage: 'capability_json',
+          retryable: false,
+          details: { reason: 'base_test_failed' },
+        },
+      },
+    });
+
+    render(
+      <LLMChannelEditor
+        items={[{ key: 'LLM_CHANNELS', value: 'openai' }, { key: 'LLM_OPENAI_PROTOCOL', value: 'openai' }, { key: 'LLM_OPENAI_BASE_URL', value: 'https://api.openai.com/v1' }, { key: 'LLM_OPENAI_ENABLED', value: 'true' }, { key: 'LLM_OPENAI_API_KEY', value: 'bad-key' }, { key: 'LLM_OPENAI_MODELS', value: 'gpt-4o-mini' }]}
+        configVersion="v1"
+        maskToken="******"
+        onSaved={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /OpenAI 官方/i }));
+    fireEvent.click(screen.getByLabelText('JSON'));
+    fireEvent.click(screen.getByRole('button', { name: '检测能力' }));
+
+    expect(await screen.findByText(/能力检测完成：0 通过 \/ 0 失败 \/ 1 跳过/i)).toBeInTheDocument();
+    expect(screen.getByText('JSON 跳过')).toBeInTheDocument();
+    expect(screen.getByText(/服务商拒绝了当前 API Key/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('模型（逗号分隔）')).toBeEnabled();
   });
 
   it('keeps manual model input available when discovery fails', async () => {
