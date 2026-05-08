@@ -1188,6 +1188,7 @@ class AkshareFetcher(BaseFetcher):
                 change_pct=safe_float(fields[32]),
                 change_amount=safe_float(fields[31]) if len(fields) > 31 else None,
                 volume=safe_int(fields[6]) * 100 if fields[6] else None,  # 腾讯返回的是手，转为股
+                amount=safe_float(fields[37]) * 10000 if len(fields) > 37 and fields[37] else None,  # 成交额(万->元)
                 open_price=safe_float(fields[5]),
                 high=safe_float(fields[33]) if len(fields) > 33 else None,  # 修正：字段 33 是最高价
                 low=safe_float(fields[34]) if len(fields) > 34 else None,  # 修正：字段 34 是最低价

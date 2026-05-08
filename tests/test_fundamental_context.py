@@ -16,6 +16,8 @@ import numpy as np
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from data_provider.base import DataFetcherManager
+from data_provider.external_fundamental_fetcher import ExternalFundamentalAPIClient
+from src.config import Config
 
 
 class _DummyFetcher:
@@ -36,6 +38,16 @@ class _DummyBoardFetcher:
 
     def get_belong_board(self, _stock_code: str):
         return self._boards
+
+
+class _DummyHTTPResponse:
+    def __init__(self, payload, status_code: int = 200):
+        self._payload = payload
+        self.status_code = status_code
+        self.headers = {"content-type": "application/json"}
+
+    def json(self):
+        return self._payload
 
 
 class TestFundamentalContext(unittest.TestCase):
@@ -153,6 +165,151 @@ class TestFundamentalContext(unittest.TestCase):
         self.assertIn("growth", ctx)
         self.assertIn("capital_flow", ctx)
         self.assertIn("dragon_tiger", ctx)
+
+    def test_external_fundamental_context_takes_priority(self) -> None:
+        manager = DataFetcherManager(fetchers=[])
+        cfg = SimpleNamespace(
+            enable_fundamental_pipeline=True,
+            external_fundamental_context_enabled=True,
+            external_fundamental_api_base_url="https://fundamentals.example.com",
+            external_fundamental_api_token_env="TEST_EXTERNAL_FUNDAMENTAL_TOKEN",
+            external_fundamental_api_timeout_ms=3000,
+            external_fundamental_api_max_retries=0,
+            external_fundamental_api_cache_ttl_seconds=0,
+            external_fundamental_api_fail_open=True,
+            external_fundamental_api_provider="external_fundamental_api",
+            fundamental_cache_ttl_seconds=120,
+            fundamental_stage_timeout_seconds=1.5,
+            fundamental_fetch_timeout_seconds=0.8,
+            fundamental_retry_max=1,
+        )
+        payload = {
+            "market": "cn",
+            "status": "ok",
+            "valuation": {"status": "ok", "data": {"pe_ratio": 18.6}},
+            "growth": {"status": "ok", "data": {"roe": 15.2}},
+            "earnings": {"status": "ok", "data": {"financial_report": {"visible_date": "2026-04-28"}}},
+            "institution": {"status": "missing", "data": {}},
+            "capital_flow": {"status": "missing", "data": {}},
+            "dragon_tiger": {"status": "missing", "data": {}},
+            "boards": {"status": "missing", "data": {}},
+            "coverage": {
+                "valuation": "ok",
+                "growth": "ok",
+                "earnings": "ok",
+                "institution": "missing",
+                "capital_flow": "missing",
+                "dragon_tiger": "missing",
+                "boards": "missing",
+            },
+            "source_chain": [{"provider": "external_fundamental_api", "result": "ok", "duration_ms": 12}],
+            "errors": [],
+            "as_of": "2026-05-05",
+        }
+
+        with patch.dict(os.environ, {"TEST_EXTERNAL_FUNDAMENTAL_TOKEN": "token"}), \
+                patch("src.config.get_config", return_value=cfg), \
+                patch("data_provider.external_fundamental_fetcher.requests.get", return_value=_DummyHTTPResponse(payload)) as mock_get, \
+                patch.object(manager, "get_realtime_quote") as mock_quote:
+            ctx = manager.get_fundamental_context("600519", as_of="2026-05-05")
+
+        self.assertEqual(ctx["source_chain"][0]["provider"], "external_fundamental_api")
+        self.assertEqual(ctx["valuation"]["data"]["pe_ratio"], 18.6)
+        self.assertEqual(ctx["status"], "partial")
+        mock_quote.assert_not_called()
+        called_url = mock_get.call_args.args[0]
+        self.assertTrue(called_url.endswith("/fundamentals/600519.SH"))
+        self.assertEqual(mock_get.call_args.kwargs["params"]["as_of"], "2026-05-05")
+        self.assertEqual(mock_get.call_args.kwargs["headers"]["Accept"], "application/json")
+        self.assertEqual(mock_get.call_args.kwargs["headers"]["Authorization"], "Bearer token")
+        self.assertEqual(mock_get.call_args.kwargs["timeout"], 3.0)
+
+    def test_external_fundamental_consumer_defaults_to_http_api(self) -> None:
+        with patch.dict(os.environ, {"ENV_FILE": "/tmp/dsa-missing-env"}, clear=True):
+            cfg = Config._load_from_env()
+
+        self.assertTrue(cfg.external_fundamental_context_enabled)
+        self.assertEqual(cfg.external_fundamental_api_base_url, "http://192.168.50.88:5999")
+        self.assertEqual(cfg.external_fundamental_api_token_env, "EXTERNAL_FUNDAMENTAL")
+        self.assertEqual(cfg.external_fundamental_api_timeout_ms, 10000)
+
+    def test_external_fundamental_client_defaults_to_documented_token_env(self) -> None:
+        payload = {
+            "market": "cn",
+            "status": "ok",
+            "valuation": {"status": "ok", "data": {"pe_ratio": 18.6}},
+            "source_chain": [{"provider": "ashare_datacenter_fundamental_api", "result": "partial", "duration_ms": 76}],
+            "as_of": "2026-05-05",
+        }
+        client = ExternalFundamentalAPIClient(
+            base_url="https://fundamentals.example.com",
+            max_retries=0,
+            cache_ttl_seconds=0,
+        )
+
+        with patch.dict(os.environ, {"EXTERNAL_FUNDAMENTAL": "chenyiyun"}), \
+                patch("data_provider.external_fundamental_fetcher.requests.get", return_value=_DummyHTTPResponse(payload)) as mock_get:
+            ctx = client.get_fundamental_context("301251", as_of="2026-05-05")
+
+        self.assertEqual(ctx["valuation"]["data"]["pe_ratio"], 18.6)
+        self.assertEqual(ctx["source_chain"][0]["provider"], "external_fundamental_api")
+        self.assertEqual(ctx["source_chain"][0]["upstream_provider"], "ashare_datacenter_fundamental_api")
+        self.assertTrue(mock_get.call_args.args[0].endswith("/fundamentals/301251.SZ"))
+        self.assertEqual(mock_get.call_args.kwargs["headers"]["Authorization"], "Bearer chenyiyun")
+        self.assertEqual(mock_get.call_args.kwargs["headers"]["Accept"], "application/json")
+        self.assertEqual(mock_get.call_args.kwargs["params"], {"as_of": "2026-05-05"})
+        self.assertEqual(mock_get.call_args.kwargs["timeout"], 10.0)
+
+    def test_external_fundamental_future_visible_date_falls_back(self) -> None:
+        manager = DataFetcherManager(fetchers=[])
+        cfg = SimpleNamespace(
+            enable_fundamental_pipeline=True,
+            external_fundamental_context_enabled=True,
+            external_fundamental_api_base_url="https://fundamentals.example.com",
+            external_fundamental_api_token_env="TEST_EXTERNAL_FUNDAMENTAL_TOKEN",
+            external_fundamental_api_timeout_ms=1200,
+            external_fundamental_api_max_retries=0,
+            external_fundamental_api_cache_ttl_seconds=0,
+            external_fundamental_api_fail_open=True,
+            external_fundamental_api_provider="external_fundamental_api",
+            fundamental_cache_ttl_seconds=120,
+            fundamental_stage_timeout_seconds=1.5,
+            fundamental_fetch_timeout_seconds=0.8,
+            fundamental_retry_max=1,
+        )
+        external_payload = {
+            "market": "cn",
+            "status": "ok",
+            "valuation": {"status": "ok", "data": {"pe_ratio": 18.6}},
+            "earnings": {"status": "ok", "data": {"financial_report": {"visible_date": "2026-05-06"}}},
+            "as_of": "2026-05-05",
+        }
+        quote = SimpleNamespace(
+            pe_ratio=12.3,
+            pb_ratio=2.1,
+            total_mv=1.0e11,
+            circ_mv=7.0e10,
+            source=SimpleNamespace(value="tencent"),
+        )
+        with patch.dict(os.environ, {"TEST_EXTERNAL_FUNDAMENTAL_TOKEN": "token"}), \
+                patch("src.config.get_config", return_value=cfg), \
+                patch("data_provider.external_fundamental_fetcher.requests.get", return_value=_DummyHTTPResponse(external_payload)), \
+                patch.object(manager, "get_realtime_quote", return_value=quote), \
+                patch("data_provider.fundamental_adapter.AkshareFundamentalAdapter.get_fundamental_bundle", return_value={
+                    "status": "not_supported",
+                    "growth": {},
+                    "earnings": {},
+                    "institution": {},
+                    "source_chain": [],
+                    "errors": [],
+                }), \
+                patch.object(manager, "get_capital_flow_context", return_value={"status": "not_supported", "source_chain": [], "errors": [], "data": {}}), \
+                patch.object(manager, "get_dragon_tiger_context", return_value={"status": "not_supported", "source_chain": [], "errors": [], "data": {}}), \
+                patch.object(manager, "get_board_context", return_value={"status": "not_supported", "source_chain": [], "errors": [], "data": {}}):
+            ctx = manager.get_fundamental_context("600519", as_of="2026-05-05")
+
+        self.assertEqual(ctx["valuation"]["data"]["pe_ratio"], 12.3)
+        self.assertNotEqual(ctx["source_chain"][0].get("provider"), "external_fundamental_api")
 
     def test_fundamental_context_derives_ttm_dividend_yield_from_quote_price(self) -> None:
         manager = DataFetcherManager(fetchers=[])

@@ -265,9 +265,19 @@ Default schedule: Every weekday at **18:00 (Beijing Time)** automatic execution.
 | `FUNDAMENTAL_RETRY_MAX` | Retry count for fundamental capabilities (including the first attempt) | `1` | Optional |
 | `FUNDAMENTAL_CACHE_TTL_SECONDS` | Fundamental aggregation cache TTL (seconds), short cache to reduce repeated API pulling. | `120` | Optional |
 | `FUNDAMENTAL_CACHE_MAX_ENTRIES` | Maximum entries for fundamental cache (evicted by time within TTL) | `256` | Optional |
+| `EXTERNAL_FUNDAMENTAL_CONTEXT` | Master switch for the external fundamental API. When enabled, A-share fundamentals prefer `/fundamentals/{stock_code}?as_of=YYYY-MM-DD`; failures fall back to built-in providers when fail-open is enabled. | `true` | Optional |
+| `EXTERNAL_FUNDAMENTAL_API_BASE_URL` | External fundamental API base URL, e.g. `http://192.168.50.88:5999` | `http://192.168.50.88:5999` | Required when external fundamentals are enabled |
+| `EXTERNAL_FUNDAMENTAL` | External fundamental API Bearer token. Use `EXTERNAL_FUNDAMENTAL_API_TOKEN_ENV` to point to another environment variable name. | - | Required when external fundamentals are enabled |
+| `EXTERNAL_FUNDAMENTAL_API_TIMEOUT_MS` | Per-request timeout for the external fundamental API (milliseconds) | `10000` | Optional |
+| `EXTERNAL_FUNDAMENTAL_API_MAX_RETRIES` | External fundamental API retry count (`0` means one request only) | `1` | Optional |
+| `EXTERNAL_FUNDAMENTAL_API_CACHE_TTL_SECONDS` | Client-side external fundamental cache TTL keyed by `stock_code + as_of` | `300` | Optional |
+| `EXTERNAL_FUNDAMENTAL_API_FAIL_OPEN` | Whether to fall back to the built-in fundamental chain on external API failures, timeouts, auth failures, or future-date validation failures | `true` | Optional |
 
 > **Behavior Notes:**
 > - **A-shares**: Returns aggregated capabilities by `valuation/growth/earnings/institution/capital_flow/dragon_tiger/boards`.
+> - The external fundamental API is enabled by default, but the running process still needs `EXTERNAL_FUNDAMENTAL` or the variable pointed to by `EXTERNAL_FUNDAMENTAL_API_TOKEN_ENV`; without a token, the external API is skipped and the built-in chain is used via fail-open.
+> - When enabled, the external fundamental API takes priority and must return the unified `fundamental_context`; top-level `as_of` and `visible_date` / `disclosure_visible_date` / `ann_date` / `report_visible_date` values must not be later than the requested `as_of`, otherwise the response is rejected and the built-in chain is used via fail-open.
+> - Restart the Web/scheduler/analysis process after changing `EXTERNAL_FUNDAMENTAL_CONTEXT`, `EXTERNAL_FUNDAMENTAL_API_BASE_URL`, `EXTERNAL_FUNDAMENTAL`, or timeout settings. If `source_chain[0].provider` still shows `fundamental_bundle`, check the process environment and restart state first.
 > - **ETFs**: Returns available items, marks missing capabilities as `not_supported`, and does not affect the original flow overall.
 > - **US/HK stocks**: Returns `not_supported` fallback block.
 > - Any exception uses fail-open logic, only logs errors without affecting the main technical/news/chip pipeline.
@@ -800,6 +810,10 @@ Log file locations:
 - Debug logs: `logs/stock_analysis_debug_YYYYMMDD.log`
 
 Debug logs keep the app's own DEBUG messages, but LiteLLM internals default to `WARNING` to avoid token-level third-party noise during streaming generation. To inspect LiteLLM internals temporarily, set `LITELLM_LOG_LEVEL=DEBUG` in `.env`.
+
+To troubleshoot missing data in end-of-day scoring, search regular or debug logs for `数据缺失诊断` / `数据覆盖诊断`. The pipeline logs missing fields, available-field counts, data sources, fundamental `coverage/source_chain`, and news-dimension summaries across daily bars, realtime quotes, chip distribution, fundamentals, news intelligence, and the final LLM input context.
+
+Some fundamental missing-field entries also include Chinese business labels in parentheses, such as `earnings.data.financial_report.net_profit_parent` (归母净利润), `earnings.data.financial_report.operating_cash_flow` (经营活动现金流量净额), `earnings.data.dividend.ttm_dividend_yield_pct` (近十二个月现金分红收益率), `earnings.data.dividend.events[0].ex_date` (最近一条分红事件除权除息日), `earnings.data.dividend.events[0].pay_date` (最近一条分红事件派息日), `capital_flow.data.inflow_10d` (近10日主力资金净流入), `institution.data` (机构持仓与股东变化数据), `dragon_tiger.data.latest_date` (最近一次龙虎榜上榜日期), `boards.data.sector_rankings.top` (所属板块涨幅榜), and `boards.data.sector_rankings.bottom` (所属板块跌幅榜).
 
 ### SQLite Write Stability
 

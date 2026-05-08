@@ -55,6 +55,74 @@ logger = logging.getLogger(__name__)
 # double-check 初始化 _single_stock_notify_lock 仍然线程安全。
 _SINGLE_STOCK_NOTIFY_LOCK_INIT_GUARD = threading.Lock()
 
+_DATA_DIAGNOSTIC_LIMIT = 32
+_DAILY_DIAGNOSTIC_FIELDS = (
+    "open", "high", "low", "close", "volume", "amount", "pct_chg", "ma5", "ma10", "ma20",
+)
+_REALTIME_DIAGNOSTIC_FIELDS = (
+    "price", "open_price", "high", "low", "change_pct", "volume", "amount",
+    "volume_ratio", "turnover_rate", "pe_ratio", "pb_ratio", "total_mv", "circ_mv",
+)
+_CHIP_DIAGNOSTIC_FIELDS = (
+    "profit_ratio", "avg_cost", "concentration_90", "concentration_70",
+)
+_FUNDAMENTAL_DIAGNOSTIC_FIELDS = (
+    "valuation.data.pe_ratio",
+    "valuation.data.pb_ratio",
+    "valuation.data.total_mv",
+    "valuation.data.circ_mv",
+    "growth.data.revenue_yoy",
+    "growth.data.net_profit_yoy",
+    "growth.data.roe",
+    "growth.data.gross_margin",
+    "earnings.data.financial_report.report_date",
+    "earnings.data.financial_report.visible_date",
+    "earnings.data.financial_report.revenue",
+    "earnings.data.financial_report.net_profit_parent",
+    "earnings.data.financial_report.operating_cash_flow",
+    "earnings.data.financial_report.roe",
+    "earnings.data.dividend.ttm_cash_dividend_per_share",
+    "earnings.data.dividend.ttm_dividend_yield_pct",
+    "earnings.data.dividend.events[0].ex_date",
+    "earnings.data.dividend.events[0].pay_date",
+    "institution.data",
+    "institution.data.institution_holding_change",
+    "institution.data.top10_holder_change",
+    "capital_flow.data.main_net_inflow",
+    "capital_flow.data.inflow_5d",
+    "capital_flow.data.inflow_10d",
+    "dragon_tiger.data.is_on_list",
+    "dragon_tiger.data.recent_count",
+    "dragon_tiger.data.latest_date",
+    "boards.data.belong_boards",
+    "boards.data.sector_rankings.top",
+    "boards.data.sector_rankings.bottom",
+)
+_DIAGNOSTIC_FIELD_DESCRIPTIONS = {
+    "earnings.data.financial_report.net_profit_parent": "归母净利润",
+    "earnings.data.financial_report.operating_cash_flow": "经营活动现金流量净额",
+    "earnings.data.dividend.ttm_dividend_yield_pct": "近十二个月现金分红收益率",
+    "earnings.data.dividend.events[0].ex_date": "最近一条分红事件除权除息日",
+    "earnings.data.dividend.events[0].pay_date": "最近一条分红事件派息日",
+    "capital_flow.data.inflow_10d": "近10日主力资金净流入",
+    "institution.data": "机构持仓与股东变化数据",
+    "dragon_tiger.data.latest_date": "最近一次龙虎榜上榜日期",
+    "boards.data.sector_rankings.top": "所属板块涨幅榜",
+    "boards.data.sector_rankings.bottom": "所属板块跌幅榜",
+}
+_PROMPT_CONTEXT_DIAGNOSTIC_FIELDS = (
+    "today.close", "today.open", "today.high", "today.low", "today.volume", "today.amount",
+    "today.ma5", "today.ma10", "today.ma20", "today.pct_chg",
+    "realtime.price", "realtime.volume_ratio", "realtime.turnover_rate",
+    "realtime.pe_ratio", "realtime.pb_ratio", "realtime.total_mv", "realtime.circ_mv",
+    "chip.profit_ratio", "chip.avg_cost", "chip.concentration_90", "chip.concentration_70",
+    "trend_analysis.trend_status", "trend_analysis.ma_alignment", "trend_analysis.signal_score",
+    "fundamental_context.valuation.data.pe_ratio",
+    "fundamental_context.growth.data.revenue_yoy",
+    "fundamental_context.earnings.data.financial_report.net_profit_parent",
+    "fundamental_context.capital_flow.data.main_net_inflow",
+)
+
 
 class StockAnalysisPipeline:
     """
@@ -176,6 +244,243 @@ class StockAnalysisPipeline:
                 },
             )
 
+    @staticmethod
+    def _is_diagnostic_missing(value: Any) -> bool:
+        """Return True for values that should be treated as unavailable in data diagnostics."""
+        if value is None:
+            return True
+        if isinstance(value, str):
+            return value.strip().lower() in {"", "n/a", "na", "none", "null", "数据缺失", "未知"}
+        if isinstance(value, (list, tuple, set, dict)):
+            return len(value) == 0
+        try:
+            return bool(pd.isna(value))
+        except Exception:
+            return False
+
+    @staticmethod
+    def _diagnostic_get(payload: Any, dotted_path: str) -> Any:
+        current = payload
+        for part in dotted_path.split("."):
+            key = part.split("[", 1)[0]
+            indexes_text = part[len(key):]
+            if key:
+                if isinstance(current, dict):
+                    current = current.get(key)
+                else:
+                    current = getattr(current, key, None)
+            if current is None:
+                return None
+            while indexes_text:
+                if not indexes_text.startswith("["):
+                    return None
+                close_index = indexes_text.find("]")
+                if close_index <= 1:
+                    return None
+                try:
+                    item_index = int(indexes_text[1:close_index])
+                except ValueError:
+                    return None
+                if not isinstance(current, (list, tuple)) or item_index < 0 or item_index >= len(current):
+                    return None
+                current = current[item_index]
+                indexes_text = indexes_text[close_index + 1:]
+        return current
+
+    @classmethod
+    def _missing_diagnostic_fields(cls, payload: Any, fields: Tuple[str, ...]) -> List[str]:
+        return [
+            field
+            for field in fields
+            if cls._is_diagnostic_missing(cls._diagnostic_get(payload, field))
+        ]
+
+    @staticmethod
+    def _truncate_diagnostic(items: List[str]) -> List[str]:
+        if len(items) <= _DATA_DIAGNOSTIC_LIMIT:
+            return items
+        return items[:_DATA_DIAGNOSTIC_LIMIT] + [f"...(+{len(items) - _DATA_DIAGNOSTIC_LIMIT})"]
+
+    @staticmethod
+    def _describe_diagnostic_field(field: str) -> str:
+        description = _DIAGNOSTIC_FIELD_DESCRIPTIONS.get(field)
+        if not description:
+            return field
+        return f"{field}({description})"
+
+    def _log_expected_data_diagnostics(
+        self,
+        *,
+        code: str,
+        stock_name: str,
+        stage: str,
+        payload: Any,
+        expected_fields: Tuple[str, ...],
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        missing = self._missing_diagnostic_fields(payload, expected_fields)
+        available_count = len(expected_fields) - len(missing)
+        log_extra = extra or {}
+        if missing:
+            logger.info(
+                "%s(%s) [数据缺失诊断] stage=%s missing=%s available=%s/%s extra=%s",
+                stock_name,
+                code,
+                stage,
+                self._truncate_diagnostic([self._describe_diagnostic_field(field) for field in missing]),
+                available_count,
+                len(expected_fields),
+                log_extra,
+            )
+        else:
+            logger.debug(
+                "%s(%s) [数据缺失诊断] stage=%s all_required_fields_available=%s extra=%s",
+                stock_name,
+                code,
+                stage,
+                len(expected_fields),
+                log_extra,
+            )
+
+    def _log_daily_data_diagnostics(self, code: str, stock_name: str, df: pd.DataFrame, source_name: str) -> None:
+        missing_columns = [field for field in _DAILY_DIAGNOSTIC_FIELDS if field not in df.columns]
+        latest_missing: List[str] = []
+        if df is not None and not df.empty:
+            latest = df.tail(1).iloc[0]
+            latest_missing = [
+                field
+                for field in _DAILY_DIAGNOSTIC_FIELDS
+                if field in df.columns and self._is_diagnostic_missing(latest.get(field))
+            ]
+        missing = [f"column:{field}" for field in missing_columns] + [
+            f"latest_row:{field}" for field in latest_missing
+        ]
+        if missing:
+            logger.info(
+                "%s(%s) [数据缺失诊断] stage=日线行情 source=%s rows=%s missing=%s",
+                stock_name,
+                code,
+                source_name,
+                0 if df is None else len(df),
+                self._truncate_diagnostic(missing),
+            )
+        else:
+            logger.debug(
+                "%s(%s) [数据缺失诊断] stage=日线行情 source=%s rows=%s all_required_fields_available=%s",
+                stock_name,
+                code,
+                source_name,
+                len(df),
+                len(_DAILY_DIAGNOSTIC_FIELDS),
+            )
+
+    def _log_fundamental_diagnostics(
+        self,
+        code: str,
+        stock_name: str,
+        fundamental_context: Optional[Dict[str, Any]],
+    ) -> None:
+        context = fundamental_context if isinstance(fundamental_context, dict) else {}
+        coverage = context.get("coverage") if isinstance(context.get("coverage"), dict) else {}
+        source_chain = context.get("source_chain") if isinstance(context.get("source_chain"), list) else []
+        weak_coverage = {
+            key: value
+            for key, value in coverage.items()
+            if str(value).lower() not in {"ok", "not_supported"}
+        }
+        logger.info(
+            "%s(%s) [数据覆盖诊断] stage=基本面 status=%s coverage=%s source_chain=%s weak_coverage=%s",
+            stock_name,
+            code,
+            context.get("status"),
+            coverage,
+            source_chain[:3],
+            weak_coverage,
+        )
+        self._log_expected_data_diagnostics(
+            code=code,
+            stock_name=stock_name,
+            stage="基本面",
+            payload=context,
+            expected_fields=_FUNDAMENTAL_DIAGNOSTIC_FIELDS,
+            extra={
+                "status": context.get("status"),
+                "coverage": coverage,
+                "weak_coverage": weak_coverage,
+                "source_chain": source_chain[:3],
+                "errors": context.get("errors", [])[:3] if isinstance(context.get("errors"), list) else [],
+            },
+        )
+
+    def _log_news_diagnostics(
+        self,
+        code: str,
+        stock_name: str,
+        intel_results: Optional[Dict[str, Any]],
+        news_context: Optional[str],
+    ) -> None:
+        if not intel_results:
+            logger.info(
+                "%s(%s) [数据缺失诊断] stage=新闻舆情 missing=['intel_results'] news_context_present=%s",
+                stock_name,
+                code,
+                bool(news_context),
+            )
+            return
+
+        empty_dimensions: List[str] = []
+        provider_summary: Dict[str, Dict[str, Any]] = {}
+        for dim_name, response in intel_results.items():
+            success = bool(getattr(response, "success", False))
+            results = getattr(response, "results", []) or []
+            provider_summary[dim_name] = {
+                "provider": getattr(response, "provider", None),
+                "success": success,
+                "result_count": len(results),
+                "error": getattr(response, "error_message", None),
+                "query": getattr(response, "query", None),
+            }
+            if not success or not results:
+                empty_dimensions.append(dim_name)
+
+        if empty_dimensions:
+            logger.info(
+                "%s(%s) [数据缺失诊断] stage=新闻舆情 empty_dimensions=%s provider_summary=%s",
+                stock_name,
+                code,
+                empty_dimensions,
+                provider_summary,
+            )
+        else:
+            logger.debug(
+                "%s(%s) [数据缺失诊断] stage=新闻舆情 all_dimensions_have_results provider_summary=%s",
+                stock_name,
+                code,
+                provider_summary,
+            )
+
+    def _log_prompt_context_diagnostics(
+        self,
+        code: str,
+        stock_name: str,
+        enhanced_context: Dict[str, Any],
+        news_context: Optional[str],
+    ) -> None:
+        self._log_expected_data_diagnostics(
+            code=code,
+            stock_name=stock_name,
+            stage="LLM输入上下文",
+            payload=enhanced_context,
+            expected_fields=_PROMPT_CONTEXT_DIAGNOSTIC_FIELDS,
+            extra={
+                "has_news_context": bool(news_context),
+                "news_context_chars": len(news_context or ""),
+                "date": enhanced_context.get("date"),
+                "fundamental_status": self._diagnostic_get(enhanced_context, "fundamental_context.status"),
+                "fundamental_coverage": self._diagnostic_get(enhanced_context, "fundamental_context.coverage"),
+            },
+        )
+
     def fetch_and_save_stock_data(
         self, 
         code: str,
@@ -219,7 +524,13 @@ class StockAnalysisPipeline:
             df, source_name = self.fetcher_manager.get_daily_data(code, days=30)
 
             if df is None or df.empty:
+                logger.info(
+                    "%s(%s) [数据缺失诊断] stage=日线行情 missing=['dataframe'] source=unknown rows=0",
+                    stock_name,
+                    code,
+                )
                 return False, "获取数据为空"
+            self._log_daily_data_diagnostics(code, stock_name, df, source_name)
 
             # 保存到数据库
             saved_count = self.db.save_daily_data(df, code, source_name)
@@ -273,12 +584,40 @@ class StockAnalysisPipeline:
                         logger.info(f"{stock_name}({code}) 实时行情: 价格={realtime_quote.price}, "
                                   f"量比={volume_ratio}, 换手率={turnover_rate}% "
                                   f"(来源: {realtime_quote.source.value if hasattr(realtime_quote, 'source') else 'unknown'})")
+                        self._log_expected_data_diagnostics(
+                            code=code,
+                            stock_name=stock_name,
+                            stage="实时行情",
+                            payload=realtime_quote,
+                            expected_fields=_REALTIME_DIAGNOSTIC_FIELDS,
+                            extra={
+                                "source": realtime_quote.source.value if hasattr(realtime_quote, 'source') else 'unknown',
+                            },
+                        )
                     else:
                         logger.warning(f"{stock_name}({code}) 所有实时行情数据源均不可用，已降级为历史收盘价继续分析")
+                        logger.info(
+                            "%s(%s) [数据缺失诊断] stage=实时行情 missing=['quote'] source_priority=%s",
+                            stock_name,
+                            code,
+                            getattr(self.config, "realtime_source_priority", ""),
+                        )
                 else:
                     logger.info(f"{stock_name}({code}) 实时行情已禁用，使用历史收盘价继续分析")
+                    logger.info(
+                        "%s(%s) [数据缺失诊断] stage=实时行情 missing=['disabled'] source_priority=%s",
+                        stock_name,
+                        code,
+                        getattr(self.config, "realtime_source_priority", ""),
+                    )
             except Exception as e:
                 logger.warning(f"{stock_name}({code}) 实时行情链路异常，已降级为历史收盘价继续分析: {e}")
+                logger.info(
+                    "%s(%s) [数据缺失诊断] stage=实时行情 missing=['exception'] error=%s",
+                    stock_name,
+                    code,
+                    e,
+                )
 
             # 如果还是没有名称，使用代码作为名称
             if not stock_name:
@@ -291,10 +630,30 @@ class StockAnalysisPipeline:
                 if chip_data:
                     logger.info(f"{stock_name}({code}) 筹码分布: 获利比例={chip_data.profit_ratio:.1%}, "
                               f"90%集中度={chip_data.concentration_90:.2%}")
+                    self._log_expected_data_diagnostics(
+                        code=code,
+                        stock_name=stock_name,
+                        stage="筹码分布",
+                        payload=chip_data,
+                        expected_fields=_CHIP_DIAGNOSTIC_FIELDS,
+                        extra={"source": getattr(chip_data, "source", None)},
+                    )
                 else:
                     logger.debug(f"{stock_name}({code}) 筹码分布获取失败或已禁用")
+                    logger.info(
+                        "%s(%s) [数据缺失诊断] stage=筹码分布 missing=['chip_distribution'] enabled=%s",
+                        stock_name,
+                        code,
+                        getattr(self.config, "enable_chip_distribution", None),
+                    )
             except Exception as e:
                 logger.warning(f"{stock_name}({code}) 获取筹码分布失败: {e}")
+                logger.info(
+                    "%s(%s) [数据缺失诊断] stage=筹码分布 missing=['exception'] error=%s",
+                    stock_name,
+                    code,
+                    e,
+                )
 
             # If agent mode is explicitly enabled, or specific agent skills are configured, use the Agent analysis pipeline.
             # NOTE: use config.agent_mode (explicit opt-in) instead of
@@ -328,6 +687,7 @@ class StockAnalysisPipeline:
                 code,
                 fundamental_context,
             )
+            self._log_fundamental_diagnostics(code, stock_name, fundamental_context)
 
             # P0: write-only snapshot, fail-open, no read dependency on this table.
             try:
@@ -396,6 +756,7 @@ class StockAnalysisPipeline:
                     )
                     logger.info(f"{stock_name}({code}) 情报搜索完成: 共 {total_results} 条结果")
                     logger.debug(f"{stock_name}({code}) 情报搜索结果:\n{news_context}")
+                    self._log_news_diagnostics(code, stock_name, intel_results, news_context)
 
                     # 保存新闻情报到数据库（用于后续复盘与查询）
                     try:
@@ -414,6 +775,11 @@ class StockAnalysisPipeline:
                         logger.warning(f"{stock_name}({code}) 保存新闻情报失败: {e}")
             else:
                 logger.info(f"{stock_name}({code}) 搜索服务不可用，跳过情报搜索")
+                logger.info(
+                    "%s(%s) [数据缺失诊断] stage=新闻舆情 missing=['search_service_unavailable']",
+                    stock_name,
+                    code,
+                )
 
             # Step 4.5: Social sentiment intelligence (US stocks only)
             if self.social_sentiment_service is not None and self.social_sentiment_service.is_available and is_us_stock_code(code):
@@ -455,6 +821,7 @@ class StockAnalysisPipeline:
                 stock_name,  # 传入股票名称
                 fundamental_context,
             )
+            self._log_prompt_context_diagnostics(code, stock_name, enhanced_context, news_context)
             
             # Step 7: 调用 AI 分析（传入增强的上下文和新闻）
             llm_progress_state = {"last_progress": 64}

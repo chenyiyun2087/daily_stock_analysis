@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [新功能] `POST /api/v1/analysis/analyze` 支持逗号分隔的多股票输入（如 `stock_code: "600519,000858"`），API 将自动拆分并循环提交分析任务（异步模式）。
 - [改进] Web 首页输入框支持逗号分隔股票代码（`,` / `，`）的一次性批量提交，识别为股票集合时将按批量任务异步分析。
 - [改进] 个股分析与大盘复盘提示词新增事实边界、数据缺失、证据回指和 JSON 输出协议约束，降低 Qwen 等模型编造价格、新闻或财报信息的风险。
+- [改进] 个股分析提示词在反幻觉约束下恢复条件型交易计划能力，要求基于输入价格、均线、高低点、平均成本等依据输出观察区间、触发条件、失效条件和仓位节奏。
+- [改进] 个股分析提示词新增“有价必须有计划”约束，避免在已有当前价、均线和日内高低点时仍把买点/目标位全部写成“数据缺失，无法判断”。
 - [测试] 新增离线 prompt 输出评测脚本、样例集与对比报告，用于量化提示词优化前后的格式稳定性、事实可靠性和分析质量变化。
 - [文档] 新增 `docs/prompt-evaluation.md`，说明提示词评测样例、评分维度、对比命令和上线验收建议。
 - [测试] 补齐 AI 配置页与 task_queue 的 LLM 运行时清理/同步回归证据：恢复渠道模型时保留 fallback、编辑模型列表期间不静默清空运行时选择，渠道无可用模型时清理失效 runtime 引用，并覆盖 legacy key 与 `cohere/*`、`google/*`、`xai/*` 直连 provider 保留语义；验收项明确包含 `tests/test_task_queue_config_sync.py`。
@@ -31,10 +33,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [改进] Web LLM 渠道编辑器补齐 MiniMax 与火山方舟预设，并将常用服务商默认模型示例同步到 OpenAI、Claude、Gemini、Kimi、Qwen、GLM、MiniMax、豆包等官方当前推荐模型。
 - [修复] 将 MiniMax 预设调整为官方 OpenAI-compatible Base URL 和当前模型示例，并补充各 LLM 渠道最新模型来源、兼容边界与回退说明。
 - [修复] 移除截图识别对 Gemini 3 Vision 模型的过时降级逻辑，默认推断改用当前 Gemini 模型配置。
+- [改进] 日终个股分析新增数据缺失诊断日志，覆盖日线、实时行情、筹码、基本面、新闻舆情和 LLM 输入上下文，并为关键基本面字段附带中文说明，便于排查评分过程中的空字段与数据源覆盖不足。
+- [新功能] 基本面聚合支持外部 `external_fundamental_api` 数据源，启用后按 `stock_code + as_of` 调用 `/fundamentals/{stock_code}`，并在未来函数校验失败或接口异常时 fail-open 回退内置数据源。
+- [修复] 外部基本面 API 消费端默认启用并指向内部服务，超时提高到 10 秒，避免未显式配置时继续落回 `fundamental_bundle`。
 - [新功能] EventMonitor 支持 `price_change_percent` 涨跌幅阈值规则，可按上涨或下跌方向触发实时告警。
 - [文档] 明确 `price_change_percent` 事件告警仅为配置与运行时规则扩展，未变更模型/provider/base URL/LiteLLM 兼容语义；回退路径为关闭/移除 Event Monitor 配置；兼容验证与回归依据见 `tests/test_multi_agent.py`、`tests/test_system_config_service.py`。
 - [chore] 抽出 Web LLM provider preset 单一模板数据源，保持现有配置保存语义不变。
 - [改进] 补齐 LLM provider channel 在 GitHub Actions 中的显式映射，并同步 `.env` 示例与配置文档。
+- [修复] 补齐腾讯实时行情成交额映射，并允许实时行情补充链路继续尝试后续数据源直到关键增强字段填充完成，降低日终评分因量价字段缺失而波动的概率。
 
 ## [3.14.2] - 2026-04-30
 

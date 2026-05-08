@@ -154,6 +154,13 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         self.assertIn("关键结论必须能回指输入中的具体依据", prompt)
         self.assertIn("只输出一个完整 JSON 对象", prompt)
         self.assertIn("依据不足时写", prompt)
+        self.assertIn("条件型区间", prompt)
+        self.assertIn("观察区间 / 触发条件 / 失效条件", prompt)
+        self.assertIn("作战计划完整性", prompt)
+        self.assertIn("风险分层", prompt)
+        self.assertIn("有价必须有计划", prompt)
+        self.assertIn("不得全部写", prompt)
+        self.assertIn("观察区间：XX-XX元", prompt)
 
     def test_prompt_prefers_context_news_window_days(self) -> None:
         with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
@@ -224,6 +231,11 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         self.assertIn("禁止编造价格、均线、成交量、财报、公告、新闻", prompt)
         self.assertIn("只返回一个有效 JSON 对象", prompt)
         self.assertIn("数据缺失，无法判断", prompt)
+        self.assertIn("交易计划的可操作性", prompt)
+        self.assertIn("观察区间/触发条件/失效条件/仓位节奏", prompt)
+        self.assertIn("禁止“有价无计划”", prompt)
+        self.assertIn("至少要输出一个观察区间", prompt)
+        self.assertIn("不要把未知风险写成已发生事实", prompt)
 
     def test_format_prompt_removes_bullish_reasons_when_final_trend_is_bearish(self) -> None:
         with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):

@@ -52,8 +52,10 @@ def _make_tencent_payload() -> str:
     fields[6] = "1234"
     fields[31] = "0.19"
     fields[32] = "3.80"
+    fields[33] = "5.20"
     fields[34] = "5.20"
     fields[35] = "5.05"
+    fields[37] = "789.12"
     fields[38] = "0.69"
     fields[39] = "12.3"
     fields[43] = "2.00"
@@ -145,6 +147,7 @@ def test_tencent_realtime_success_logs_endpoint(caplog, monkeypatch, akshare_fet
     assert quote is not None
     assert quote.name == "大秦铁路"
     assert quote.price == 5.19
+    assert quote.amount == 7891200.0
     assert breaker.successes == ["akshare_tencent"]
     assert f"endpoint={TENCENT_REALTIME_ENDPOINT}" in caplog.text
     assert "[实时行情-腾讯] 601006 大秦铁路:" in caplog.text

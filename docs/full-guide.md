@@ -299,9 +299,19 @@ daily_stock_analysis/
 | `FUNDAMENTAL_RETRY_MAX` | 基本面能力重试次数（含首次） | `1` | 可选 |
 | `FUNDAMENTAL_CACHE_TTL_SECONDS` | 基本面聚合缓存 TTL（秒），短缓存减轻重复拉取 | `120` | 可选 |
 | `FUNDAMENTAL_CACHE_MAX_ENTRIES` | 基本面缓存最大条目数（TTL 内按时间淘汰） | `256` | 可选 |
+| `EXTERNAL_FUNDAMENTAL_CONTEXT` | 外部基本面 API 总开关；启用后 A 股基本面优先调用 `/fundamentals/{stock_code}?as_of=YYYY-MM-DD`，失败按 `fail-open` 回退内置数据源 | `true` | 可选 |
+| `EXTERNAL_FUNDAMENTAL_API_BASE_URL` | 外部基本面 API Base URL，例如 `http://192.168.50.88:5999` | `http://192.168.50.88:5999` | 启用外部基本面时必填 |
+| `EXTERNAL_FUNDAMENTAL` | 外部基本面 API Bearer Token；也可通过 `EXTERNAL_FUNDAMENTAL_API_TOKEN_ENV` 指向其他环境变量名 | - | 启用外部基本面时必填 |
+| `EXTERNAL_FUNDAMENTAL_API_TIMEOUT_MS` | 外部基本面 API 单次请求超时（毫秒） | `10000` | 可选 |
+| `EXTERNAL_FUNDAMENTAL_API_MAX_RETRIES` | 外部基本面 API 重试次数（不含首次失败后的额外次数语义：0 表示只请求一次） | `1` | 可选 |
+| `EXTERNAL_FUNDAMENTAL_API_CACHE_TTL_SECONDS` | 外部基本面 API 客户端缓存 TTL（秒），按 `stock_code + as_of` 缓存 | `300` | 可选 |
+| `EXTERNAL_FUNDAMENTAL_API_FAIL_OPEN` | 外部基本面 API 失败、超时、鉴权失败或未来函数校验失败时是否回退内置基本面链路 | `true` | 可选 |
 
 > 行为说明：
 > - A 股：按 `valuation/growth/earnings/institution/capital_flow/dragon_tiger/boards` 聚合能力返回；
+> - 外部基本面 API 默认启用，但仍需要运行进程中存在 `EXTERNAL_FUNDAMENTAL`（或 `EXTERNAL_FUNDAMENTAL_API_TOKEN_ENV` 指向的变量）；缺少 token 时会跳过外部 API 并按 fail-open 使用内置链路。
+> - 外部基本面 API 启用时优先消费 `external_fundamental_api` 返回的统一 `fundamental_context`；响应顶层 `as_of` 以及 `visible_date` / `disclosure_visible_date` / `ann_date` / `report_visible_date` 不得晚于请求 `as_of`，否则拒绝该响应并按 fail-open 回退。
+> - 修改 `EXTERNAL_FUNDAMENTAL_CONTEXT`、`EXTERNAL_FUNDAMENTAL_API_BASE_URL`、`EXTERNAL_FUNDAMENTAL` 或超时配置后，需要重启 Web/调度/分析进程；若日志里的 `source_chain[0].provider` 仍是 `fundamental_bundle`，优先检查进程环境变量和重启状态。
 > - ETF：返回可得项，缺失能力标记为 `not_supported`，整体不影响原流程；
 > - 美股/港股：返回 `not_supported` 兜底块；
 > - 任何异常走 fail-open，仅记录错误，不影响技术面/新闻/筹码主链路。
@@ -962,6 +972,10 @@ python main.py --debug
 - 调试日志：`logs/stock_analysis_debug_YYYYMMDD.log`
 
 调试日志默认保留项目自身 DEBUG 信息，但会将 LiteLLM 内部日志压低到 `WARNING`，避免流式生成时按 token 写入大量第三方调试日志；如需排查 LiteLLM 内部细节，可在 `.env` 中临时设置 `LITELLM_LOG_LEVEL=DEBUG`。
+
+日终分析排查数据缺失时，可在常规日志或调试日志中搜索 `数据缺失诊断` / `数据覆盖诊断`。日志会按阶段输出缺失字段、可用字段数量、数据源、基本面 `coverage/source_chain`、新闻维度结果等信息，覆盖日线行情、实时行情、筹码分布、基本面、新闻舆情和 LLM 输入上下文。
+
+部分基本面缺失字段会同时输出中文说明，便于定位评分链路中的业务含义：`earnings.data.financial_report.net_profit_parent`（归母净利润）、`earnings.data.financial_report.operating_cash_flow`（经营活动现金流量净额）、`earnings.data.dividend.ttm_dividend_yield_pct`（近十二个月现金分红收益率）、`earnings.data.dividend.events[0].ex_date`（最近一条分红事件除权除息日）、`earnings.data.dividend.events[0].pay_date`（最近一条分红事件派息日）、`capital_flow.data.inflow_10d`（近10日主力资金净流入）、`institution.data`（机构持仓与股东变化数据）、`dragon_tiger.data.latest_date`（最近一次龙虎榜上榜日期）、`boards.data.sector_rankings.top`（所属板块涨幅榜）、`boards.data.sector_rankings.bottom`（所属板块跌幅榜）。
 
 ### SQLite 写入稳态配置
 

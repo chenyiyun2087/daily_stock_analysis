@@ -5,6 +5,7 @@ import asyncio
 import importlib.util
 import logging
 import sys
+from typing import Optional
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -28,7 +29,7 @@ from src.enums import ReportType
 
 
 class _DummyFetcher:
-    def __init__(self, name: str, priority: int, result=None, error: Exception | None = None):
+    def __init__(self, name: str, priority: int, result=None, error: Optional[Exception] = None):
         self.name = name
         self.priority = priority
         self._result = result
@@ -48,6 +49,18 @@ def _make_quote(code: str = "600519", name: str = "贵州茅台") -> UnifiedReal
         price=1688.0,
         change_pct=1.2,
     )
+
+
+def _quote_with_fields(**kwargs) -> UnifiedRealtimeQuote:
+    values = {
+        "code": "600519",
+        "name": "贵州茅台",
+        "source": RealtimeSource.AKSHARE_SINA,
+        "price": 1688.0,
+        "change_pct": 1.2,
+    }
+    values.update(kwargs)
+    return UnifiedRealtimeQuote(**values)
 
 
 def _make_pipeline(enable_realtime_quote: bool, realtime_quote=None) -> StockAnalysisPipeline:
@@ -107,6 +120,44 @@ def test_manager_does_not_warn_when_fallback_source_succeeds(mock_get_config, ca
     assert quote.name == "贵州茅台"
     assert not [record for record in caplog.records if record.levelno >= logging.WARNING]
     assert "所有数据源均不可用" not in caplog.text
+
+
+@patch("src.config.get_config")
+def test_manager_continues_supplementing_until_missing_realtime_fields_are_filled(mock_get_config):
+    mock_get_config.return_value = SimpleNamespace(
+        enable_realtime_quote=True,
+        realtime_source_priority="akshare_sina,tencent,efinance",
+    )
+    primary = _quote_with_fields(source=RealtimeSource.AKSHARE_SINA, amount=1000.0)
+    no_help = _quote_with_fields(source=RealtimeSource.TENCENT)
+    supplement = _quote_with_fields(
+        source=RealtimeSource.EFINANCE,
+        amount=2000.0,
+        volume_ratio=0.8,
+        turnover_rate=1.83,
+        total_mv=2908213605.0,
+        circ_mv=826933731.0,
+        amplitude=1.27,
+    )
+    manager = DataFetcherManager(
+        fetchers=[
+            _DummyFetcher("AkshareFetcher", 1, result=primary),
+            _DummyFetcher("EfinanceFetcher", 0, result=supplement),
+        ]
+    )
+
+    with patch.object(manager, "_call_fetcher_method") as call:
+        call.side_effect = [primary, no_help, supplement]
+        quote = manager.get_realtime_quote("600519")
+
+    assert quote is primary
+    assert call.call_count == 3
+    assert quote.amount == 1000.0
+    assert quote.volume_ratio == 0.8
+    assert quote.turnover_rate == 1.83
+    assert quote.total_mv == 2908213605.0
+    assert quote.circ_mv == 826933731.0
+    assert quote.amplitude == 1.27
 
 
 def test_pipeline_warns_once_when_all_realtime_sources_fail(caplog):

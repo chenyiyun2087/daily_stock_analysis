@@ -19,13 +19,14 @@ import random
 import time
 from threading import BoundedSemaphore, RLock, Thread
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import date, datetime
 from typing import Callable, Optional, List, Tuple, Dict, Any
 
 import pandas as pd
 import numpy as np
 from src.data.stock_index_loader import get_index_stock_name
 from src.data.stock_mapping import STOCK_NAME_MAP, is_meaningful_stock_name
+from .external_fundamental_fetcher import ExternalFundamentalAPIClient
 from .fundamental_adapter import AkshareFundamentalAdapter
 
 # 配置日志
@@ -504,6 +505,8 @@ class DataFetcherManager:
             # 默认数据源将在首次使用时延迟加载
             self._init_default_fetchers()
         self._fundamental_adapter = AkshareFundamentalAdapter()
+        self._external_fundamental_client = None
+        self._external_fundamental_client_key: Optional[Tuple[Any, ...]] = None
         self._tickflow_fetcher = None
         self._tickflow_api_key: Optional[str] = None
         self._tickflow_lock = RLock()
@@ -628,18 +631,101 @@ class DataFetcherManager:
             # Best-effort cleanup during interpreter shutdown.
             pass
 
-    def _get_fundamental_cache_key(self, stock_code: str, budget_seconds: Optional[float] = None) -> str:
+    def _get_fundamental_cache_key(
+        self,
+        stock_code: str,
+        budget_seconds: Optional[float] = None,
+        as_of: Optional[Any] = None,
+    ) -> str:
         """生成基本面缓存 key（包含预算分桶以避免低预算结果污染高预算请求）。"""
         normalized_code = normalize_stock_code(stock_code)
+        as_of_part = ""
+        if as_of is not None:
+            try:
+                as_of_part = f"|as_of={self._normalize_fundamental_as_of(as_of)}"
+            except Exception:
+                as_of_part = f"|as_of={str(as_of).strip()}"
         if budget_seconds is None:
-            return f"{normalized_code}|budget=default"
+            return f"{normalized_code}|budget=default{as_of_part}"
         try:
             budget = max(0.0, float(budget_seconds))
         except (TypeError, ValueError):
             budget = 0.0
         # 100ms bucket to balance cache reuse and scenario isolation.
         budget_bucket = int(round(budget * 10))
-        return f"{normalized_code}|budget={budget_bucket}"
+        return f"{normalized_code}|budget={budget_bucket}{as_of_part}"
+
+    @staticmethod
+    def _normalize_fundamental_as_of(as_of: Any) -> str:
+        if isinstance(as_of, datetime):
+            return as_of.date().isoformat()
+        if isinstance(as_of, date):
+            return as_of.isoformat()
+        text = str(as_of or "").strip()
+        if not text:
+            return datetime.now().date().isoformat()
+        return datetime.strptime(text[:10], "%Y-%m-%d").date().isoformat()
+
+    @staticmethod
+    def _resolve_default_fundamental_as_of() -> str:
+        try:
+            from src.services.history_loader import get_frozen_target_date
+
+            frozen = get_frozen_target_date()
+            if frozen:
+                return frozen.isoformat()
+        except Exception:
+            pass
+        return datetime.now().date().isoformat()
+
+    def _get_external_fundamental_client(self, config: Any) -> Optional[ExternalFundamentalAPIClient]:
+        enabled = bool(
+            getattr(config, "external_fundamental_context_enabled", False)
+            or getattr(config, "external_fundamental_api_enabled", False)
+        )
+        if not enabled:
+            return None
+
+        base_url = (getattr(config, "external_fundamental_api_base_url", "") or "").strip()
+        if not base_url:
+            return None
+
+        key = (
+            base_url,
+            getattr(config, "external_fundamental_api_token_env", "EXTERNAL_FUNDAMENTAL"),
+            int(getattr(config, "external_fundamental_api_timeout_ms", 1200) or 1200),
+            int(getattr(config, "external_fundamental_api_max_retries", 1) or 0),
+            int(getattr(config, "external_fundamental_api_cache_ttl_seconds", 300) or 0),
+            getattr(config, "external_fundamental_api_provider", "external_fundamental_api"),
+        )
+        current_key = getattr(self, "_external_fundamental_client_key", None)
+        current_client = getattr(self, "_external_fundamental_client", None)
+        if current_client is not None and current_key == key:
+            if current_client.enabled:
+                return current_client
+            logger.warning(
+                "[external_fundamental_api] enabled but token env %s is empty; skip external context",
+                key[1],
+            )
+            return None
+
+        client = ExternalFundamentalAPIClient(
+            base_url=base_url,
+            token_env=key[1],
+            timeout_ms=key[2],
+            max_retries=key[3],
+            cache_ttl_seconds=key[4],
+            provider=key[5],
+        )
+        if not client.enabled:
+            logger.warning(
+                "[external_fundamental_api] enabled but token env %s is empty; skip external context",
+                key[1],
+            )
+            return None
+        self._external_fundamental_client = client
+        self._external_fundamental_client_key = key
+        return client
 
     def _prune_fundamental_cache(self, ttl_seconds: int, max_entries: int) -> None:
         """Prune expired and overflow fundamental cache items."""
@@ -1260,14 +1346,12 @@ class DataFetcherManager:
                         logger.debug(f"[实时行情] {stock_code} 部分字段缺失，尝试从后续数据源补充")
                         supplement_attempts = 0
                     else:
-                        # Supplement missing fields from this source (limit attempts)
-                        supplement_attempts += 1
-                        if supplement_attempts > 1:
-                            logger.debug(f"[实时行情] {stock_code} 补充尝试已达上限，停止继续")
-                            break
                         merged = self._merge_quote_fields(primary_quote, quote)
                         if merged:
+                            supplement_attempts += 1
                             logger.info(f"[实时行情] {stock_code} 从 {source} 补充了缺失字段: {merged}")
+                        elif supplement_attempts > 0:
+                            logger.debug(f"[实时行情] {stock_code} 从 {source} 未补到缺失字段，继续尝试")
                         # Stop supplementing once all key fields are filled
                         if not self._quote_needs_supplement(primary_quote):
                             break
@@ -1294,6 +1378,7 @@ class DataFetcherManager:
     # Fields worth supplementing from secondary sources when the primary
     # source returns None for them. Ordered by importance.
     _SUPPLEMENT_FIELDS = [
+        'amount',
         'volume_ratio', 'turnover_rate',
         'pe_ratio', 'pb_ratio', 'total_mv', 'circ_mv',
         'amplitude',
@@ -1965,7 +2050,8 @@ class DataFetcherManager:
     def get_fundamental_context(
         self,
         stock_code: str,
-        budget_seconds: Optional[float] = None
+        budget_seconds: Optional[float] = None,
+        as_of: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """
         Aggregate fundamental blocks with fail-open semantics.
@@ -1987,6 +2073,28 @@ class DataFetcherManager:
                 market=market,
                 reason="market not supported",
             )
+        as_of_text = self._normalize_fundamental_as_of(as_of) if as_of is not None else self._resolve_default_fundamental_as_of()
+
+        external_client = self._get_external_fundamental_client(config)
+        if external_client is not None:
+            try:
+                external_context = external_client.get_fundamental_context(stock_code, as_of_text)
+                logger.info(
+                    "[external_fundamental_api] loaded context for %s as_of=%s status=%s",
+                    stock_code,
+                    as_of_text,
+                    external_context.get("status"),
+                )
+                return external_context
+            except Exception as exc:
+                logger.warning(
+                    "[external_fundamental_api] failed for %s as_of=%s, fallback to built-in providers: %s",
+                    stock_code,
+                    as_of_text,
+                    exc,
+                )
+                if not getattr(config, "external_fundamental_api_fail_open", True):
+                    return self.build_failed_fundamental_context(stock_code, str(exc))
 
         stage_timeout = float(
             budget_seconds if budget_seconds is not None else config.fundamental_stage_timeout_seconds
@@ -1997,7 +2105,7 @@ class DataFetcherManager:
 
         cache_ttl = int(config.fundamental_cache_ttl_seconds)
         cache_max_entries = max(0, int(getattr(config, "fundamental_cache_max_entries", 256)))
-        cache_key = self._get_fundamental_cache_key(stock_code, stage_timeout)
+        cache_key = self._get_fundamental_cache_key(stock_code, stage_timeout, as_of=as_of_text)
         if cache_ttl > 0:
             self._prune_fundamental_cache(cache_ttl, cache_max_entries)
             with self._fundamental_cache_lock:

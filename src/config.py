@@ -859,6 +859,15 @@ class Config:
     fundamental_cache_ttl_seconds: int = 120
     # 基本面缓存最大条目数（避免长时间运行内存增长）
     fundamental_cache_max_entries: int = 256
+    # 外部基本面 API（AShareDataCenter）接入；默认启用，启用后优先作为 A 股 fundamental_context 来源
+    external_fundamental_context_enabled: bool = True
+    external_fundamental_api_base_url: str = "http://192.168.50.88:5999"
+    external_fundamental_api_token_env: str = "EXTERNAL_FUNDAMENTAL"
+    external_fundamental_api_timeout_ms: int = 10000
+    external_fundamental_api_max_retries: int = 1
+    external_fundamental_api_cache_ttl_seconds: int = 300
+    external_fundamental_api_fail_open: bool = True
+    external_fundamental_api_provider: str = "external_fundamental_api"
 
     # === Portfolio PR2: import/risk/fx settings ===
     portfolio_risk_concentration_alert_pct: float = 35.0
@@ -1569,6 +1578,46 @@ class Config:
                 256,
                 field_name='FUNDAMENTAL_CACHE_MAX_ENTRIES',
                 minimum=1,
+            ),
+            external_fundamental_context_enabled=(
+                os.getenv(
+                    'EXTERNAL_FUNDAMENTAL_CONTEXT',
+                    os.getenv('EXTERNAL_FUNDAMENTAL_API_ENABLED', 'true'),
+                ).lower() == 'true'
+            ),
+            external_fundamental_api_base_url=os.getenv(
+                'EXTERNAL_FUNDAMENTAL_API_BASE_URL',
+                'http://192.168.50.88:5999',
+            ),
+            external_fundamental_api_token_env=os.getenv(
+                'EXTERNAL_FUNDAMENTAL_API_TOKEN_ENV',
+                'EXTERNAL_FUNDAMENTAL',
+            ),
+            external_fundamental_api_timeout_ms=parse_env_int(
+                os.getenv('EXTERNAL_FUNDAMENTAL_API_TIMEOUT_MS'),
+                10000,
+                field_name='EXTERNAL_FUNDAMENTAL_API_TIMEOUT_MS',
+                minimum=1,
+            ),
+            external_fundamental_api_max_retries=parse_env_int(
+                os.getenv('EXTERNAL_FUNDAMENTAL_API_MAX_RETRIES'),
+                1,
+                field_name='EXTERNAL_FUNDAMENTAL_API_MAX_RETRIES',
+                minimum=0,
+            ),
+            external_fundamental_api_cache_ttl_seconds=parse_env_int(
+                os.getenv('EXTERNAL_FUNDAMENTAL_API_CACHE_TTL_SECONDS'),
+                300,
+                field_name='EXTERNAL_FUNDAMENTAL_API_CACHE_TTL_SECONDS',
+                minimum=0,
+            ),
+            external_fundamental_api_fail_open=os.getenv(
+                'EXTERNAL_FUNDAMENTAL_API_FAIL_OPEN',
+                'true',
+            ).lower() == 'true',
+            external_fundamental_api_provider=os.getenv(
+                'EXTERNAL_FUNDAMENTAL_API_PROVIDER',
+                'external_fundamental_api',
             ),
             portfolio_risk_concentration_alert_pct=parse_env_float(
                 os.getenv('PORTFOLIO_RISK_CONCENTRATION_ALERT_PCT'),
