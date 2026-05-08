@@ -3,6 +3,8 @@
 Unit tests for strict news freshness filtering and strategy window logic (Issue #697).
 """
 
+from __future__ import annotations
+
 import sys
 import unittest
 from datetime import datetime, timedelta, timezone

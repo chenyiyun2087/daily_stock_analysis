@@ -2,6 +2,7 @@
 """Tests for backward-compatible config env aliases and TickFlow loading."""
 
 import os
+import logging
 import tempfile
 import unittest
 from pathlib import Path
@@ -325,10 +326,25 @@ class ConfigEnvCompatibilityTestCase(unittest.TestCase):
         self.assertEqual(config.stock_list, ["600519", "000001"])
 
     def test_parse_report_language_accepts_known_alias_without_warning(self) -> None:
-        with self.assertNoLogs("src.config", level="WARNING"):
+        logger = logging.getLogger("src.config")
+        previous_level = logger.level
+        records = []
+
+        class _CaptureHandler(logging.Handler):
+            def emit(self, record):
+                records.append(record)
+
+        handler = _CaptureHandler(level=logging.WARNING)
+        logger.addHandler(handler)
+        logger.setLevel(min(previous_level, logging.WARNING) if previous_level else logging.WARNING)
+        try:
             parsed = Config._parse_report_language("zh-cn")
+        finally:
+            logger.removeHandler(handler)
+            logger.setLevel(previous_level)
 
         self.assertEqual(parsed, "zh")
+        self.assertEqual(records, [])
 
     @patch("src.config.setup_env")
     @patch.object(Config, "_parse_litellm_yaml", return_value=[])

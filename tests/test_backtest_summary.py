@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Unit tests for BacktestEngine.compute_summary()."""
 
+from __future__ import annotations
+
 import unittest
 from dataclasses import dataclass
 
@@ -50,4 +52,3 @@ class BacktestSummaryTestCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

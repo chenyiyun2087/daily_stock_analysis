@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Unit tests for Auth setupState contract in /auth/status and /auth/settings."""
 
+from __future__ import annotations
+
 import asyncio
 import json
 import os

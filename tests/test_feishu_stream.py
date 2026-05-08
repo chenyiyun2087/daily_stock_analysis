@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 from bot.platforms.feishu_stream import FeishuReplyClient
@@ -81,4 +83,3 @@ def test_send_to_chat_chunked_uses_chat_id(monkeypatch):
         assert call["receive_id_type"] == "chat_id"
         assert call["at_user"] is False
         assert call["user_id"] is None
-
